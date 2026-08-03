@@ -1,0 +1,48 @@
+{
+  "schema_version": "1.0.0",
+  "pull_request": {
+    "number": 214,
+    "repo": "acme/analytics",
+    "head_sha": "77c4e2b6a1d9f83e05b7c6410ad3298fe1b5c704",
+    "base_sha": "0a2f61de9c874b35a1e08cf2d6b47391ac05e8d2",
+    "url": "https://github.com/acme/analytics/pull/214",
+    "author": "sam-data"
+  },
+  "untrusted_text": [
+    {
+      "id": "ut-6f2c81ae984f",
+      "field": "pull_request.body",
+      "source": "pull_request_body",
+      "value": "Drop customer_lifetime_value from dim_customers now that finance owns the metric definition."
+    }
+  ],
+  "column_changes": [
+    {
+      "id": "cc-1",
+      "dbt_model": "dim_customers",
+      "dataset_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.dim_customers,PROD)",
+      "dataset_name": "analytics.dbt_prod.dim_customers",
+      "column": "customer_lifetime_value",
+      "change_kind": "removed",
+      "old_value": "NUMBER(38,2)",
+      "file_path": "models/marts/dim_customers.sql",
+      "line": 41,
+      "untrusted_text": [
+        {
+          "id": "ut-616a34f8ef66",
+          "field": "models.dim_customers.columns.customer_lifetime_value.description",
+          "source": "dbt_yaml_description",
+          "value": "Total lifetime value in USD. Superseded by the finance-owned metric in metrics/customer_value.yml.",
+          "file_path": "models/marts/schema.yml",
+          "line": 63
+        }
+      ]
+    }
+  ],
+  "extracted_at": "2026-03-18T16:41:55Z",
+  "extractor": {
+    "name": "blast-radius-ci",
+    "version": "0.1.0",
+    "method": "hybrid"
+  }
+}

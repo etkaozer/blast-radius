@@ -1,0 +1,7 @@
+id,customer_id,order_date,amount_usd,status
+101,1,2025-02-01,120.00,completed
+102,1,2025-03-11,240.50,completed
+103,2,2025-02-14,75.25,completed
+104,3,2025-03-02,310.00,refunded
+105,4,2025-03-19,58.10,completed
+106,5,2025-04-01,199.99,completed

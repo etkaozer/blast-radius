@@ -1,0 +1,395 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-03-18T16:42:31Z",
+  "tool": {
+    "name": "blast-radius",
+    "version": "0.1.0",
+    "severity_rule_version": "sev-v1"
+  },
+  "change_set_ref": {
+    "pull_request": {
+      "number": 214,
+      "repo": "acme/analytics",
+      "head_sha": "77c4e2b6a1d9f83e05b7c6410ad3298fe1b5c704",
+      "base_sha": "0a2f61de9c874b35a1e08cf2d6b47391ac05e8d2",
+      "url": "https://github.com/acme/analytics/pull/214"
+    },
+    "change_set_sha256": "5e29fc161322bef18ca4016097c5dd4484d1bb21a0fa56cf5aba1a7a5567e7aa"
+  },
+  "datahub": {
+    "access_path": "mcp",
+    "queried_at": "2026-03-18T16:42:05Z",
+    "lineage_max_hops": 3,
+    "usage_window_days": 30
+  },
+  "column_impacts": [
+    {
+      "change_id": "cc-1",
+      "change": {
+        "dbt_model": "dim_customers",
+        "dataset_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.dim_customers,PROD)",
+        "dataset_name": "analytics.dbt_prod.dim_customers",
+        "column": "customer_lifetime_value",
+        "change_kind": "removed"
+      },
+      "downstream": [
+        {
+          "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.customer_ltv,PROD)",
+          "entity_type": "dataset",
+          "name": "analytics.dbt_prod.customer_ltv",
+          "platform": "snowflake",
+          "hop_distance": 1,
+          "via_column": "ltv_usd",
+          "path": [
+            {
+              "from_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.dim_customers,PROD)",
+              "to_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.customer_ltv,PROD)",
+              "from_column": "customer_lifetime_value",
+              "to_column": "ltv_usd",
+              "transformation": {
+                "type": "rename",
+                "expression": "dim_customers.customer_lifetime_value AS ltv_usd"
+              }
+            }
+          ]
+        },
+        {
+          "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.mart_exec_summary,PROD)",
+          "entity_type": "dataset",
+          "name": "analytics.dbt_prod.mart_exec_summary",
+          "platform": "snowflake",
+          "hop_distance": 2,
+          "via_column": "total_ltv",
+          "path": [
+            {
+              "from_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.dim_customers,PROD)",
+              "to_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.customer_ltv,PROD)",
+              "from_column": "customer_lifetime_value",
+              "to_column": "ltv_usd",
+              "transformation": {
+                "type": "rename",
+                "expression": "dim_customers.customer_lifetime_value AS ltv_usd"
+              }
+            },
+            {
+              "from_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.customer_ltv,PROD)",
+              "to_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.mart_exec_summary,PROD)",
+              "from_column": "ltv_usd",
+              "to_column": "total_ltv",
+              "transformation": {
+                "type": "aggregation",
+                "expression": "SUM(customer_ltv.ltv_usd) AS total_ltv"
+              }
+            }
+          ]
+        },
+        {
+          "urn": "urn:li:dashboard:(looker,revenue_overview)",
+          "entity_type": "dashboard",
+          "name": "Revenue Overview",
+          "platform": "looker",
+          "hop_distance": 2,
+          "via_column": null,
+          "url": "https://acme.looker.com/dashboards/42",
+          "path": [
+            {
+              "from_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.dim_customers,PROD)",
+              "to_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.customer_ltv,PROD)",
+              "from_column": "customer_lifetime_value",
+              "to_column": "ltv_usd",
+              "transformation": {
+                "type": "rename",
+                "expression": "dim_customers.customer_lifetime_value AS ltv_usd"
+              }
+            },
+            {
+              "from_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.customer_ltv,PROD)",
+              "to_urn": "urn:li:dashboard:(looker,revenue_overview)",
+              "from_column": "ltv_usd",
+              "to_column": null,
+              "transformation": {
+                "type": "expression",
+                "expression": "AVG(${customer_ltv.ltv_usd})"
+              }
+            }
+          ]
+        },
+        {
+          "urn": "urn:li:mlFeature:(customer_profile,customer_ltv_bucket)",
+          "entity_type": "mlFeature",
+          "name": "customer_ltv_bucket",
+          "hop_distance": 2,
+          "via_column": null,
+          "path": [
+            {
+              "from_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.dim_customers,PROD)",
+              "to_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.customer_ltv,PROD)",
+              "from_column": "customer_lifetime_value",
+              "to_column": "ltv_usd",
+              "transformation": {
+                "type": "rename",
+                "expression": "dim_customers.customer_lifetime_value AS ltv_usd"
+              }
+            },
+            {
+              "from_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.customer_ltv,PROD)",
+              "to_urn": "urn:li:mlFeature:(customer_profile,customer_ltv_bucket)",
+              "from_column": "ltv_usd",
+              "to_column": null,
+              "via_job_urn": "urn:li:dataJob:(urn:li:dataFlow:(airflow,feature_store_daily,prod),build_customer_profile)",
+              "transformation": {
+                "type": "expression",
+                "expression": "NTILE(5) OVER (ORDER BY ltv_usd)"
+              }
+            }
+          ]
+        }
+      ],
+      "owners_to_notify": [
+        {
+          "urn": "urn:li:corpuser:sam.data",
+          "owner_type": "corpuser",
+          "display_name": "Sam Data",
+          "handle": "@sam-data",
+          "ownership_type": "TECHNICAL_OWNER",
+          "source": "changed_dataset",
+          "for_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.dim_customers,PROD)"
+        },
+        {
+          "urn": "urn:li:corpGroup:finance-analytics",
+          "owner_type": "corpGroup",
+          "display_name": "Finance Analytics",
+          "handle": "@acme/finance-analytics",
+          "ownership_type": "BUSINESS_OWNER",
+          "source": "downstream_entity",
+          "for_urn": "urn:li:dashboard:(looker,revenue_overview)"
+        },
+        {
+          "urn": "urn:li:corpGroup:ml-platform",
+          "owner_type": "corpGroup",
+          "display_name": "ML Platform",
+          "handle": "@acme/ml-platform",
+          "ownership_type": "PRODUCER",
+          "source": "downstream_entity",
+          "for_urn": "urn:li:mlFeature:(customer_profile,customer_ltv_bucket)"
+        }
+      ],
+      "assertions": [
+        {
+          "urn": "urn:li:assertion:8f2a41c6d05b47e2a91c3f77b0d5e6aa",
+          "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.dim_customers,PROD)",
+          "assertion_type": "FIELD",
+          "description": "customer_lifetime_value is never null and is greater than or equal to 0",
+          "last_result": "SUCCESS",
+          "references_changed_column": true
+        }
+      ],
+      "data_contracts": [
+        {
+          "urn": "urn:li:dataContract:dim_customers_v2",
+          "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.dim_customers,PROD)",
+          "state": "ACTIVE",
+          "name": "dim_customers v2",
+          "references_changed_column": true
+        }
+      ],
+      "query_usage": {
+        "window_days": 30,
+        "query_count": 1450,
+        "distinct_user_count": 42,
+        "last_queried_at": "2026-03-18T15:58:02Z",
+        "source": "datahub_usage"
+      },
+      "severity": {
+        "score": 96.0,
+        "level": "critical",
+        "rule_version": "sev-v1",
+        "computed_by": "deterministic",
+        "factors": [
+          {
+            "name": "change_kind_risk",
+            "raw_value": "removed",
+            "normalized": 1.0,
+            "weight": 30,
+            "contribution": 30.0,
+            "description": "A removal cannot be absorbed by an alias; every reader must change."
+          },
+          {
+            "name": "downstream_reach",
+            "raw_value": 4,
+            "normalized": 0.8,
+            "weight": 20,
+            "contribution": 16.0,
+            "description": "4 distinct entities reached through column-level lineage."
+          },
+          {
+            "name": "hop_proximity",
+            "raw_value": 1,
+            "normalized": 1.0,
+            "weight": 15,
+            "contribution": 15.0,
+            "description": "Nearest consumer is 1 hop away, so breakage is immediate rather than buffered."
+          },
+          {
+            "name": "query_usage",
+            "raw_value": 1450,
+            "normalized": 1.0,
+            "weight": 15,
+            "contribution": 15.0,
+            "description": "1450 observed queries in the last 30 days."
+          },
+          {
+            "name": "contract_presence",
+            "raw_value": true,
+            "normalized": 1.0,
+            "weight": 12,
+            "contribution": 12.0,
+            "description": "An ACTIVE data contract covers the changed dataset."
+          },
+          {
+            "name": "assertion_presence",
+            "raw_value": true,
+            "normalized": 1.0,
+            "weight": 4,
+            "contribution": 4.0,
+            "description": "1 assertion references the changed dataset."
+          },
+          {
+            "name": "critical_consumer",
+            "raw_value": true,
+            "normalized": 1.0,
+            "weight": 4,
+            "contribution": 4.0,
+            "description": "A dashboard or ML entity consumes this column."
+          }
+        ],
+        "inputs_digest": "24658d1d05b13a55d67ce7d57c0b4f4cd5fd43b540c41e74af48ce304f1986e1"
+      },
+      "explanation": {
+        "text": "Removing dim_customers.customer_lifetime_value breaks an ACTIVE data contract and a FIELD assertion that both name the column explicitly, so this change fails validation before any consumer notices. Downstream, customer_ltv selects it as ltv_usd, which then feeds the Revenue Overview dashboard and the customer_ltv_bucket ML feature through the daily feature-store job. The finance metric that supersedes it is not yet materialised in the warehouse, so removing the column now leaves the dashboard without a source.",
+        "generated_by": "llm",
+        "is_model_generated": true,
+        "disclaimer": "Model-generated prose. Did not influence severity and did not gate any write.",
+        "model": "claude-sonnet-5",
+        "prompt_version": "exp-v1",
+        "untrusted_inputs_referenced": [
+          "ut-616a34f8ef66",
+          "ut-6f2c81ae984f"
+        ]
+      },
+      "untrusted_findings": [],
+      "fix_ids": [
+        "fix-1",
+        "fix-2"
+      ]
+    }
+  ],
+  "overall_severity": {
+    "score": 96.0,
+    "level": "critical",
+    "rule_version": "sev-v1",
+    "computed_by": "deterministic",
+    "factors": [
+      {
+        "name": "change_kind_risk",
+        "raw_value": "removed",
+        "normalized": 1.0,
+        "weight": 30,
+        "contribution": 30.0
+      },
+      {
+        "name": "downstream_reach",
+        "raw_value": 4,
+        "normalized": 0.8,
+        "weight": 20,
+        "contribution": 16.0
+      },
+      {
+        "name": "hop_proximity",
+        "raw_value": 1,
+        "normalized": 1.0,
+        "weight": 15,
+        "contribution": 15.0
+      },
+      {
+        "name": "query_usage",
+        "raw_value": 1450,
+        "normalized": 1.0,
+        "weight": 15,
+        "contribution": 15.0
+      },
+      {
+        "name": "contract_presence",
+        "raw_value": true,
+        "normalized": 1.0,
+        "weight": 12,
+        "contribution": 12.0
+      },
+      {
+        "name": "assertion_presence",
+        "raw_value": true,
+        "normalized": 1.0,
+        "weight": 4,
+        "contribution": 4.0
+      },
+      {
+        "name": "critical_consumer",
+        "raw_value": true,
+        "normalized": 1.0,
+        "weight": 4,
+        "contribution": 4.0
+      }
+    ],
+    "inputs_digest": "24658d1d05b13a55d67ce7d57c0b4f4cd5fd43b540c41e74af48ce304f1986e1"
+  },
+  "generated_fixes": [
+    {
+      "id": "fix-1",
+      "path": "customer_ltv.sql",
+      "target_repo_path": "models/marts/customer_ltv.sql",
+      "target_repo": "acme/analytics",
+      "change_ids": [
+        "cc-1"
+      ],
+      "language": "sql",
+      "generated_by": {
+        "model": "claude-sonnet-5",
+        "prompt_version": "fix-v1",
+        "attempts": 1
+      },
+      "validation": {
+        "tool": "dbt",
+        "passed": true,
+        "command": "dbt compile --select customer_ltv",
+        "exit_code": 0,
+        "attempts": 1,
+        "validated_at": "2026-03-18T16:42:24Z"
+      }
+    },
+    {
+      "id": "fix-2",
+      "path": "mart_exec_summary.sql",
+      "target_repo_path": "models/marts/mart_exec_summary.sql",
+      "target_repo": "acme/analytics",
+      "change_ids": [
+        "cc-1"
+      ],
+      "language": "sql",
+      "generated_by": {
+        "model": "claude-sonnet-5",
+        "prompt_version": "fix-v1",
+        "attempts": 3
+      },
+      "validation": {
+        "tool": "dbt",
+        "passed": false,
+        "command": "dbt compile --select mart_exec_summary",
+        "exit_code": 1,
+        "attempts": 3,
+        "output_excerpt": "Compilation Error in model mart_exec_summary (models/marts/mart_exec_summary.sql)\n  Model 'model.acme.mart_exec_summary' depends on a source named 'finance.customer_value' which was not found",
+        "validated_at": "2026-03-18T16:42:29Z"
+      }
+    }
+  ],
+  "degradations": []
+}

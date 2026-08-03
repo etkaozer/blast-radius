@@ -1,0 +1,34 @@
+version: 2
+
+models:
+  - name: dim_customers
+    description: Customer dimension with order-derived attributes.
+    columns:
+      - name: customer_id
+        tests: [unique, not_null]
+      - name: email
+        description: Inherited from stg_customers. The 1-hop consumer in the rename demo.
+      - name: signup_channel
+        description: Inherited from stg_customers. The 1-hop consumer in the adversarial demo.
+      - name: customer_lifetime_value
+        description: >
+          Total completed order value in USD. The column removed in the
+          02_removal_contract demo; env/seed_demo.py attaches a FIELD assertion
+          and an ACTIVE data contract to it.
+
+  - name: customer_ltv
+    description: Lifetime value mart. Renames three columns on the way through.
+    columns:
+      - name: customer_email
+        description: dim_customers.email, renamed.
+      - name: acquisition_channel
+        description: dim_customers.signup_channel, renamed.
+      - name: ltv_usd
+        description: dim_customers.customer_lifetime_value, renamed.
+
+  - name: mart_exec_summary
+    description: Channel-level aggregation. Two hops from the marts layer.
+    columns:
+      - name: acquisition_channel
+      - name: total_ltv
+        description: SUM of customer_ltv.ltv_usd.

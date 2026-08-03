@@ -1,0 +1,35 @@
+version: 2
+
+models:
+  - name: stg_customers
+    description: One row per customer, straight from the raw feed.
+    columns:
+      - name: customer_id
+        description: Surrogate key from the source system.
+        tests: [unique, not_null]
+      - name: email
+        description: >
+          Primary contact email for the customer. Renamed to email_address to
+          match the CRM feed naming.
+      - name: signup_channel
+        # env/seed_demo.py overwrites this description with the adversarial text
+        # from contracts/fixtures/03_adversarial_description/ before the demo.
+        # Left benign in the repository so that a reader browsing the project
+        # does not mistake the attack for our own documentation.
+        description: How the customer first arrived. One of organic, paid, referral, partner.
+        meta:
+          owner: growth-team
+      - name: signup_date
+        description: Date the customer account was created.
+
+  - name: stg_orders
+    description: One row per order.
+    columns:
+      - name: order_id
+        tests: [unique, not_null]
+      - name: customer_id
+        description: Foreign key to stg_customers.
+      - name: amount_usd
+        description: Order total in USD.
+      - name: status
+        description: Order lifecycle state.

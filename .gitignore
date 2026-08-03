@@ -1,0 +1,43 @@
+# --- secrets and per-developer configuration -------------------------------
+.env
+.env.local
+# Each developer copies their own profile here; see CONTRIBUTING.md.
+.claude/settings.local.json
+
+# --- python ----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# --- dbt -------------------------------------------------------------------
+target/
+dbt_packages/
+logs/
+.user.yml
+*.duckdb
+*.duckdb.wal
+# Copied from profiles.example.yml; may contain warehouse credentials.
+env/dbt_project/profiles.yml
+
+# --- docker / local DataHub quickstart --------------------------------------
+env/volumes/
+env/.datahub/
+docker-compose.override.yml
+
+# --- pipeline output --------------------------------------------------------
+out/
+*.local.json
+
+# --- os / editor ------------------------------------------------------------
+.DS_Store
+.idea/
+.vscode/

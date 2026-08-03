@@ -1,0 +1,284 @@
+{
+  "schema_version": "1.0.0",
+  "generated_at": "2026-03-11T09:14:19Z",
+  "tool": {
+    "name": "blast-radius",
+    "version": "0.1.0",
+    "severity_rule_version": "sev-v1"
+  },
+  "change_set_ref": {
+    "pull_request": {
+      "number": 128,
+      "repo": "acme/analytics",
+      "head_sha": "3f9a1c7d21b84e6f0a5c93de77b21ac4e8d51f60",
+      "base_sha": "b1c0e4a99f27d38a5e6c14b7fa93d2058c7e6a11",
+      "url": "https://github.com/acme/analytics/pull/128"
+    },
+    "change_set_sha256": "06a38485b8e73b1fbb5a4b62ebe587fc89cf63a66ddfb9442e758f4e0bde052e"
+  },
+  "datahub": {
+    "access_path": "mcp",
+    "queried_at": "2026-03-11T09:14:11Z",
+    "lineage_max_hops": 3,
+    "usage_window_days": 30
+  },
+  "column_impacts": [
+    {
+      "change_id": "cc-1",
+      "change": {
+        "dbt_model": "stg_customers",
+        "dataset_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.stg_customers,PROD)",
+        "dataset_name": "analytics.dbt_prod.stg_customers",
+        "column": "email",
+        "change_kind": "renamed"
+      },
+      "downstream": [
+        {
+          "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.dim_customers,PROD)",
+          "entity_type": "dataset",
+          "name": "analytics.dbt_prod.dim_customers",
+          "platform": "snowflake",
+          "hop_distance": 1,
+          "via_column": "email",
+          "url": "http://localhost:9002/dataset/urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.dim_customers,PROD)",
+          "path": [
+            {
+              "from_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.stg_customers,PROD)",
+              "to_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.dim_customers,PROD)",
+              "from_column": "email",
+              "to_column": "email",
+              "transformation": {
+                "type": "identity",
+                "expression": "stg_customers.email"
+              }
+            }
+          ]
+        },
+        {
+          "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.customer_ltv,PROD)",
+          "entity_type": "dataset",
+          "name": "analytics.dbt_prod.customer_ltv",
+          "platform": "snowflake",
+          "hop_distance": 2,
+          "via_column": "customer_email",
+          "path": [
+            {
+              "from_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.stg_customers,PROD)",
+              "to_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.dim_customers,PROD)",
+              "from_column": "email",
+              "to_column": "email",
+              "transformation": {
+                "type": "identity",
+                "expression": "stg_customers.email"
+              }
+            },
+            {
+              "from_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.dim_customers,PROD)",
+              "to_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.customer_ltv,PROD)",
+              "from_column": "email",
+              "to_column": "customer_email",
+              "transformation": {
+                "type": "rename",
+                "expression": "dim_customers.email AS customer_email"
+              }
+            }
+          ]
+        }
+      ],
+      "owners_to_notify": [
+        {
+          "urn": "urn:li:corpuser:dana.eng",
+          "owner_type": "corpuser",
+          "display_name": "Dana Eng",
+          "handle": "@dana-eng",
+          "ownership_type": "TECHNICAL_OWNER",
+          "source": "changed_dataset",
+          "for_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.stg_customers,PROD)"
+        },
+        {
+          "urn": "urn:li:corpGroup:crm-analytics",
+          "owner_type": "corpGroup",
+          "display_name": "CRM Analytics",
+          "handle": "@acme/crm-analytics",
+          "ownership_type": "BUSINESS_OWNER",
+          "source": "downstream_entity",
+          "for_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.customer_ltv,PROD)"
+        }
+      ],
+      "assertions": [],
+      "data_contracts": [],
+      "query_usage": {
+        "window_days": 30,
+        "query_count": 128,
+        "distinct_user_count": 17,
+        "last_queried_at": "2026-03-10T22:05:44Z",
+        "source": "datahub_usage"
+      },
+      "severity": {
+        "score": 64.5,
+        "level": "high",
+        "rule_version": "sev-v1",
+        "computed_by": "deterministic",
+        "factors": [
+          {
+            "name": "change_kind_risk",
+            "raw_value": "renamed",
+            "normalized": 0.85,
+            "weight": 30,
+            "contribution": 25.5,
+            "description": "A rename breaks every reference that is not updated in the same commit."
+          },
+          {
+            "name": "downstream_reach",
+            "raw_value": 2,
+            "normalized": 0.6,
+            "weight": 20,
+            "contribution": 12.0,
+            "description": "2 distinct entities reached through column-level lineage."
+          },
+          {
+            "name": "hop_proximity",
+            "raw_value": 1,
+            "normalized": 1.0,
+            "weight": 15,
+            "contribution": 15.0,
+            "description": "Nearest consumer is 1 hop away, so breakage is immediate rather than buffered."
+          },
+          {
+            "name": "query_usage",
+            "raw_value": 128,
+            "normalized": 0.8,
+            "weight": 15,
+            "contribution": 12.0,
+            "description": "128 observed queries in the last 30 days."
+          },
+          {
+            "name": "contract_presence",
+            "raw_value": false,
+            "normalized": 0.0,
+            "weight": 12,
+            "contribution": 0.0,
+            "description": "No data contract covers the changed dataset."
+          },
+          {
+            "name": "assertion_presence",
+            "raw_value": false,
+            "normalized": 0.0,
+            "weight": 4,
+            "contribution": 0.0,
+            "description": "No assertion references the changed dataset."
+          },
+          {
+            "name": "critical_consumer",
+            "raw_value": false,
+            "normalized": 0.0,
+            "weight": 4,
+            "contribution": 0.0,
+            "description": "No dashboard, chart or ML entity consumes this column."
+          }
+        ],
+        "inputs_digest": "443564ab30dc1737676adb713ac94d917aa56f1d974d2840e043ee23da64d444"
+      },
+      "explanation": {
+        "text": "Renaming stg_customers.email to email_address breaks two models that select the column by name. dim_customers reads it directly; customer_ltv reads it one hop further on, aliased as customer_email. Neither reference is updated in this PR. The suggested fix aliases the new name back to email in dim_customers, which keeps the downstream contract intact and limits the change to the staging layer.",
+        "generated_by": "llm",
+        "is_model_generated": true,
+        "disclaimer": "Model-generated prose. Did not influence severity and did not gate any write.",
+        "model": "claude-sonnet-5",
+        "prompt_version": "exp-v1",
+        "untrusted_inputs_referenced": [
+          "ut-5092f5282ef7",
+          "ut-86ecb7b26363"
+        ]
+      },
+      "untrusted_findings": [],
+      "fix_ids": [
+        "fix-1"
+      ]
+    }
+  ],
+  "overall_severity": {
+    "score": 64.5,
+    "level": "high",
+    "rule_version": "sev-v1",
+    "computed_by": "deterministic",
+    "factors": [
+      {
+        "name": "change_kind_risk",
+        "raw_value": "renamed",
+        "normalized": 0.85,
+        "weight": 30,
+        "contribution": 25.5
+      },
+      {
+        "name": "downstream_reach",
+        "raw_value": 2,
+        "normalized": 0.6,
+        "weight": 20,
+        "contribution": 12.0
+      },
+      {
+        "name": "hop_proximity",
+        "raw_value": 1,
+        "normalized": 1.0,
+        "weight": 15,
+        "contribution": 15.0
+      },
+      {
+        "name": "query_usage",
+        "raw_value": 128,
+        "normalized": 0.8,
+        "weight": 15,
+        "contribution": 12.0
+      },
+      {
+        "name": "contract_presence",
+        "raw_value": false,
+        "normalized": 0.0,
+        "weight": 12,
+        "contribution": 0.0
+      },
+      {
+        "name": "assertion_presence",
+        "raw_value": false,
+        "normalized": 0.0,
+        "weight": 4,
+        "contribution": 0.0
+      },
+      {
+        "name": "critical_consumer",
+        "raw_value": false,
+        "normalized": 0.0,
+        "weight": 4,
+        "contribution": 0.0
+      }
+    ],
+    "inputs_digest": "443564ab30dc1737676adb713ac94d917aa56f1d974d2840e043ee23da64d444"
+  },
+  "generated_fixes": [
+    {
+      "id": "fix-1",
+      "path": "dim_customers.sql",
+      "target_repo_path": "models/marts/dim_customers.sql",
+      "target_repo": "acme/analytics",
+      "change_ids": [
+        "cc-1"
+      ],
+      "language": "sql",
+      "generated_by": {
+        "model": "claude-sonnet-5",
+        "prompt_version": "fix-v1",
+        "attempts": 1
+      },
+      "validation": {
+        "tool": "dbt",
+        "passed": true,
+        "command": "dbt compile --select dim_customers",
+        "exit_code": 0,
+        "attempts": 1,
+        "validated_at": "2026-03-11T09:14:18Z"
+      }
+    }
+  ],
+  "degradations": []
+}

@@ -1,0 +1,9 @@
+# Copy to profiles.yml (gitignored via *.local.json / target rules, or keep local).
+# DuckDB keeps the demo to a single file with no external warehouse to provision.
+blast_radius_demo:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: ../blast_radius_demo.duckdb
+      threads: 4

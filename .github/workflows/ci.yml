@@ -1,0 +1,60 @@
+# Lint, type-check and test this repository itself. OWNER B (@teammate).
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --all-extras --group dev
+
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Type-check
+        run: uv run mypy
+
+      - name: Test
+        run: uv run pytest
+
+      # The scaffold's own invariant: the pipeline must fail with a clear,
+      # attributable NotImplementedError rather than a traceback, for as long as
+      # stubs remain. Exit code 3 is "halted on an unimplemented stage".
+      - name: Pipeline halts cleanly on stubs
+        run: |
+          set +e
+          uv run blast-radius analyze \
+            --change-set contracts/fixtures/01_rename/change_set.json \
+            --out out/report.json
+          code=$?
+          set -e
+          if [ "$code" -ne 3 ] && [ "$code" -ne 0 ]; then
+            echo "expected exit 3 (halted on a stub) or 0 (fully implemented), got $code"
+            exit 1
+          fi
+
+      - name: Stub inventory
+        run: uv run blast-radius stubs

@@ -1,0 +1,101 @@
+# The Action. OWNER B (@teammate).
+#
+# Three steps, matching the three halves of the pipeline:
+#   ci/diff   -> change_set.json
+#   core/     -> impact_report.json  (+ generated fixes)
+#   ci/render -> comment, ci/publish -> post it and push the fixes
+#
+# Everything is uploaded as an artifact whether or not the run succeeds, because
+# the most useful thing after a failed review is the JSON that caused it.
+name: blast-radius
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "models/**/*.sql"
+      - "models/**/*.yml"
+      - "**/dbt_project.yml"
+
+concurrency:
+  # One review per PR. A new push cancels the previous run rather than racing
+  # it to update the same comment.
+  group: blast-radius-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write # push fix/blast-radius-<pr>
+  pull-requests: write # post the review comment
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out the pull request head
+        uses: actions/checkout@v4
+        with:
+          # Both revisions are needed: the diff is computed between them.
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install blast-radius
+        run: uv sync --all-extras
+
+      - name: Extract changed columns
+        id: extract
+        run: |
+          uv run blast-radius-ci extract \
+            --repo "${{ github.repository }}" \
+            --pr-number "${{ github.event.pull_request.number }}" \
+            --base-sha "${{ github.event.pull_request.base.sha }}" \
+            --head-sha "${{ github.event.pull_request.head.sha }}" \
+            --out out/change_set.json
+
+      - name: Analyze impact against DataHub
+        id: analyze
+        env:
+          DATAHUB_GMS_URL: ${{ secrets.DATAHUB_GMS_URL }}
+          DATAHUB_GMS_TOKEN: ${{ secrets.DATAHUB_GMS_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BLAST_RADIUS_DATAHUB_MODE: sdk
+        run: |
+          uv run blast-radius analyze \
+            --change-set out/change_set.json \
+            --out out/impact_report.json \
+            --fixes-dir out/fixes
+
+      - name: Render the review comment
+        run: |
+          uv run blast-radius-ci render \
+            --report out/impact_report.json \
+            --out out/comment.md
+
+      - name: Publish comment and fix branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          uv run blast-radius-ci publish \
+            --report out/impact_report.json \
+            --comment out/comment.md \
+            --fixes-dir out/fixes
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blast-radius-${{ github.event.pull_request.number }}
+          path: out/
+          retention-days: 14
+
+    # NOTE: this workflow does not fail the build on a critical finding. That is
+    # deliberate for now — a review tool that blocks merges before anyone trusts
+    # its severity scoring gets switched off in a week. Gating on severity is a
+    # decision for a team that has watched the scores for a while, and it belongs
+    # in branch protection rather than here.

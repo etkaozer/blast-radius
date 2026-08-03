@@ -1,0 +1,23 @@
+# Demo project for blast-radius. OWNER B (@teammate).
+#
+# Small on purpose. The only property that matters is that the lineage is REAL:
+# every column relationship blast-radius reports in the demo is one this project
+# genuinely creates, so a judge who opens DataHub and clicks through sees the
+# same graph the tool describes.
+name: blast_radius_demo
+version: "1.0.0"
+config-version: 2
+
+profile: blast_radius_demo
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  blast_radius_demo:
+    staging:
+      +materialized: view
+    marts:
+      +materialized: table

@@ -1,0 +1,43 @@
+# Install with: uv run pre-commit install
+default_language_version:
+  python: python3.11
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-json
+      - id: check-yaml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=512"]
+      - id: detect-private-key
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.6
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      # mypy runs from the project venv so it sees pydantic's plugin and our deps.
+      - id: mypy
+        name: mypy (strict)
+        entry: uv run mypy
+        language: system
+        pass_filenames: false
+        types: [python]
+
+      # contracts/ is the frozen interface between the two owners. Any change to
+      # a schema or a golden fixture must keep the contract tests green locally,
+      # before it can break the other owner's branch.
+      - id: contract-tests
+        name: contract tests (contracts/ is frozen)
+        entry: uv run pytest contracts/tests -q
+        language: system
+        pass_filenames: false
+        files: ^contracts/

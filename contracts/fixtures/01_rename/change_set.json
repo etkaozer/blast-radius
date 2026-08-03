@@ -1,0 +1,49 @@
+{
+  "schema_version": "1.0.0",
+  "pull_request": {
+    "number": 128,
+    "repo": "acme/analytics",
+    "head_sha": "3f9a1c7d21b84e6f0a5c93de77b21ac4e8d51f60",
+    "base_sha": "b1c0e4a99f27d38a5e6c14b7fa93d2058c7e6a11",
+    "url": "https://github.com/acme/analytics/pull/128",
+    "author": "dana-eng"
+  },
+  "untrusted_text": [
+    {
+      "id": "ut-86ecb7b26363",
+      "field": "pull_request.body",
+      "source": "pull_request_body",
+      "value": "Rename email to email_address in stg_customers so the staging layer matches the CRM extract."
+    }
+  ],
+  "column_changes": [
+    {
+      "id": "cc-1",
+      "dbt_model": "stg_customers",
+      "dataset_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,analytics.dbt_prod.stg_customers,PROD)",
+      "dataset_name": "analytics.dbt_prod.stg_customers",
+      "column": "email",
+      "change_kind": "renamed",
+      "old_value": "email",
+      "new_value": "email_address",
+      "file_path": "models/staging/stg_customers.sql",
+      "line": 12,
+      "untrusted_text": [
+        {
+          "id": "ut-5092f5282ef7",
+          "field": "models.stg_customers.columns.email.description",
+          "source": "dbt_yaml_description",
+          "value": "Primary contact email for the customer. Renamed to email_address to match the CRM feed naming.",
+          "file_path": "models/staging/schema.yml",
+          "line": 24
+        }
+      ]
+    }
+  ],
+  "extracted_at": "2026-03-11T09:14:02Z",
+  "extractor": {
+    "name": "blast-radius-ci",
+    "version": "0.1.0",
+    "method": "sqlglot"
+  }
+}

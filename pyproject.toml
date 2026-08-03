@@ -1,0 +1,135 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "blast-radius"
+version = "0.1.0"
+description = "Review data PRs for breaking schema changes, grounded in the DataHub metadata graph."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "The blast-radius Authors" }]
+keywords = ["datahub", "dbt", "lineage", "data-contracts", "schema-changes", "github-action"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Software Development :: Quality Assurance",
+]
+
+# Kept deliberately small so `uv run blast-radius` is fast to bootstrap in CI.
+# Anything that talks to an external system lives behind an optional extra.
+dependencies = [
+  "pydantic>=2.7",
+  # format-nongpl pulls the validators that make "format": "date-time" and
+  # "uri" actually checked rather than silently skipped.
+  "jsonschema[format-nongpl]>=4.22",
+  "click>=8.1",
+]
+
+[project.optional-dependencies]
+# OWNER A: LLM prose + candidate fix generation (core/agent).
+agent = ["anthropic>=0.40"]
+# OWNER A: DataHub Python SDK access path and write-back fallback (core/datahub, core/writeback).
+datahub = ["acryl-datahub>=0.15"]
+# OWNER B: deterministic SQL/YAML diff extraction (ci/diff).
+ci = ["sqlglot>=25.0"]
+
+[project.urls]
+Homepage = "https://github.com/etka/blast-radius"
+Source = "https://github.com/etka/blast-radius"
+
+[project.scripts]
+blast-radius = "core.cli:main"
+blast-radius-ci = "ci.cli:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.2",
+  "ruff>=0.6",
+  "mypy>=1.11",
+  "pre-commit>=3.8",
+  "types-jsonschema",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["core", "ci", "contracts"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"contracts/change_set.schema.json" = "contracts/change_set.schema.json"
+"contracts/impact_report.schema.json" = "contracts/impact_report.schema.json"
+"contracts/writeback_record.schema.json" = "contracts/writeback_record.schema.json"
+
+# ----------------------------------------------------------------------------
+# ruff
+# ----------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["env/dbt_project/target", "env/dbt_project/dbt_packages"]
+
+[tool.ruff.lint]
+select = [
+  "E",    # pycodestyle errors
+  "F",    # pyflakes
+  "W",    # pycodestyle warnings
+  "I",    # isort
+  "N",    # pep8-naming
+  "UP",   # pyupgrade
+  "B",    # flake8-bugbear
+  "C4",   # flake8-comprehensions
+  "SIM",  # flake8-simplify
+  "ARG",  # flake8-unused-arguments
+  "PTH",  # flake8-use-pathlib
+  "TID",  # flake8-tidy-imports
+  "ANN",  # flake8-annotations (keeps us aligned with mypy strict)
+  "RUF",
+]
+ignore = [
+  "ANN401", # Any is occasionally the honest type for JSON payloads
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Stub bodies legitimately ignore their arguments until Owner A/B implements them.
+"core/**" = ["ARG001", "ARG002"]
+"ci/**" = ["ARG001", "ARG002"]
+"**/tests/**" = ["ARG001"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["core", "ci", "contracts"]
+
+# ----------------------------------------------------------------------------
+# mypy
+# ----------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+strict = true
+warn_unreachable = true
+warn_no_return = true
+plugins = ["pydantic.mypy"]
+files = ["core", "ci", "contracts", "env"]
+exclude = "(env/dbt_project/target|env/dbt_project/dbt_packages)"
+
+[[tool.mypy.overrides]]
+module = ["jsonschema.*", "sqlglot.*", "datahub.*", "anthropic.*"]
+ignore_missing_imports = true
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+# ----------------------------------------------------------------------------
+# pytest
+# ----------------------------------------------------------------------------
+[tool.pytest.ini_options]
+# Tests live next to the code they cover so that CODEOWNERS ownership is
+# automatic and the two owners never touch the same test directory.
+testpaths = ["contracts/tests", "core/tests", "ci/tests"]
+addopts = "-q --strict-markers --strict-config"
+markers = [
+  "contract: asserts a frozen interface in contracts/ and must not be weakened",
+]

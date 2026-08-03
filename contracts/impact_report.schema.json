@@ -1,0 +1,458 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/etka/blast-radius/contracts/impact_report.schema.json",
+  "title": "ImpactReport",
+  "description": "The result of grounding a ChangeSet in the DataHub metadata graph. PRODUCED BY OWNER A (core/), CONSUMED BY OWNER B (ci/render, ci/publish). Frozen interface; see CONTRACT.md. Two fields encode the project's central architectural claim and are therefore constants rather than free values: severity.computed_by is always \"deterministic\", and untrustedFinding.effect_on_severity is always \"none\". A report that cannot honestly set them is an invalid report.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "generated_at", "tool", "change_set_ref", "column_impacts", "overall_severity"],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "severity_rule_version"],
+      "properties": {
+        "name": { "const": "blast-radius" },
+        "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "severity_rule_version": { "type": "string", "pattern": "^sev-v[0-9]+$" }
+      }
+    },
+    "change_set_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pull_request", "change_set_sha256"],
+      "properties": {
+        "pull_request": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["number", "repo", "head_sha", "base_sha"],
+          "properties": {
+            "number": { "type": "integer", "minimum": 1 },
+            "repo": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+            "head_sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+            "base_sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+            "url": { "type": "string", "format": "uri", "maxLength": 512 }
+          }
+        },
+        "change_set_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "sha256 of the canonical JSON of the input ChangeSet. Makes the report reproducible and lets the renderer detect a stale report."
+        }
+      }
+    },
+    "datahub": { "$ref": "#/$defs/datahubContext" },
+    "column_impacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/columnImpact" }
+    },
+    "overall_severity": {
+      "$ref": "#/$defs/severity",
+      "description": "The maximum severity across column_impacts, recomputed deterministically. Not an average: one critical break is a critical PR."
+    },
+    "generated_fixes": {
+      "type": "array",
+      "default": [],
+      "items": { "$ref": "#/$defs/generatedFix" }
+    },
+    "degradations": {
+      "type": "array",
+      "default": [],
+      "items": { "$ref": "#/$defs/degradation" },
+      "description": "Capabilities that were unavailable at run time. The report is still valid; the renderer must surface these so a reader never mistakes a missing capability for an absence of impact."
+    }
+  },
+
+  "$defs": {
+    "datahubContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["access_path", "queried_at"],
+      "properties": {
+        "access_path": {
+          "enum": ["mcp", "sdk"],
+          "description": "Which of the two supported access paths served this run."
+        },
+        "queried_at": { "type": "string", "format": "date-time" },
+        "lineage_max_hops": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "usage_window_days": { "type": "integer", "minimum": 1, "maximum": 365 },
+        "server_version": { "type": "string", "pattern": "^[0-9A-Za-z.+_-]+$", "maxLength": 64 }
+      }
+    },
+
+    "columnImpact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["change_id", "change", "downstream", "owners_to_notify", "assertions", "data_contracts", "query_usage", "severity"],
+      "properties": {
+        "change_id": { "type": "string", "pattern": "^cc-[0-9]{1,4}$" },
+        "change": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["dbt_model", "dataset_urn", "dataset_name", "column", "change_kind"],
+          "properties": {
+            "dbt_model": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+            "dataset_urn": { "type": "string", "pattern": "^urn:li:dataset:\\(", "maxLength": 512 },
+            "dataset_name": { "type": "string", "pattern": "^[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)*$" },
+            "column": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+            "change_kind": { "enum": ["removed", "renamed", "type_changed", "added"] }
+          }
+        },
+        "downstream": {
+          "type": "array",
+          "default": [],
+          "items": { "$ref": "#/$defs/downstreamEntity" },
+          "description": "Distinct entities reached through COLUMN-LEVEL lineage from the changed column. Table-level-only reachability must not appear here; it belongs in degradations."
+        },
+        "owners_to_notify": { "type": "array", "default": [], "items": { "$ref": "#/$defs/owner" } },
+        "assertions": { "type": "array", "default": [], "items": { "$ref": "#/$defs/assertionRef" } },
+        "data_contracts": { "type": "array", "default": [], "items": { "$ref": "#/$defs/contractRef" } },
+        "query_usage": { "$ref": "#/$defs/queryUsage" },
+        "severity": { "$ref": "#/$defs/severity" },
+        "explanation": {
+          "oneOf": [{ "$ref": "#/$defs/explanation" }, { "type": "null" }],
+          "description": "Null when the run was made with --no-agent. A report is complete and actionable without it."
+        },
+        "untrusted_findings": {
+          "type": "array",
+          "default": [],
+          "items": { "$ref": "#/$defs/untrustedFinding" }
+        },
+        "fix_ids": {
+          "type": "array",
+          "default": [],
+          "items": { "type": "string", "pattern": "^fix-[0-9]{1,4}$" }
+        }
+      }
+    },
+
+    "downstreamEntity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["urn", "entity_type", "name", "hop_distance", "path"],
+      "properties": {
+        "urn": { "type": "string", "pattern": "^urn:li:", "maxLength": 512 },
+        "entity_type": {
+          "enum": ["dataset", "dashboard", "chart", "mlFeature", "mlModel", "mlPrimaryKey", "dataJob", "dataFlow", "notebook"]
+        },
+        "name": { "type": "string", "pattern": "^[^\\n\\r]+$", "maxLength": 256 },
+        "platform": { "type": "string", "pattern": "^[a-z0-9_+-]+$", "maxLength": 64 },
+        "hop_distance": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of lineage edges from the changed column. 1 = direct consumer."
+        },
+        "via_column": {
+          "type": ["string", "null"],
+          "pattern": "^[A-Za-z0-9_]*$",
+          "maxLength": 128,
+          "description": "The field in the downstream entity that carries the changed column, when the entity has a schema."
+        },
+        "url": { "type": "string", "format": "uri", "maxLength": 512 },
+        "path": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/lineageHop" },
+          "description": "The full column-level path from the changed column to this entity, including intervening transformations. This is what makes the finding auditable rather than assertable."
+        }
+      }
+    },
+
+    "lineageHop": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from_urn", "to_urn", "transformation"],
+      "properties": {
+        "from_urn": { "type": "string", "pattern": "^urn:li:", "maxLength": 512 },
+        "to_urn": { "type": "string", "pattern": "^urn:li:", "maxLength": 512 },
+        "from_column": { "type": ["string", "null"], "pattern": "^[A-Za-z0-9_]*$", "maxLength": 128 },
+        "to_column": { "type": ["string", "null"], "pattern": "^[A-Za-z0-9_]*$", "maxLength": 128 },
+        "via_job_urn": { "type": ["string", "null"], "pattern": "^(urn:li:.*)?$", "maxLength": 512 },
+        "transformation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": {
+            "type": {
+              "enum": ["identity", "rename", "cast", "expression", "aggregation", "join", "filter", "unknown"]
+            },
+            "expression": {
+              "type": ["string", "null"],
+              "maxLength": 2000,
+              "description": "SQL fragment reported by DataHub's fine-grained lineage. Machine-extracted metadata, not user prose, but still not an instruction channel."
+            }
+          }
+        }
+      }
+    },
+
+    "owner": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["urn", "owner_type", "display_name"],
+      "properties": {
+        "urn": { "type": "string", "pattern": "^urn:li:(corpuser|corpGroup):", "maxLength": 512 },
+        "owner_type": { "enum": ["corpuser", "corpGroup"] },
+        "display_name": { "type": "string", "pattern": "^[^\\n\\r]+$", "maxLength": 128 },
+        "handle": {
+          "type": ["string", "null"],
+          "pattern": "^[@#]?[A-Za-z0-9._@/-]*$",
+          "maxLength": 128,
+          "description": "Notification handle used by ci/render to @mention, e.g. a GitHub login (@dana-eng), a GitHub team (@acme/crm-analytics) or a Slack handle."
+        },
+        "ownership_type": {
+          "enum": ["TECHNICAL_OWNER", "BUSINESS_OWNER", "DATA_STEWARD", "PRODUCER", "CONSUMER", "NONE"]
+        },
+        "source": {
+          "enum": ["changed_dataset", "downstream_entity", "container_inherited"],
+          "description": "Why this person is being notified. Owners of a downstream dashboard get a different message than owners of the changed model."
+        },
+        "for_urn": { "type": "string", "pattern": "^urn:li:", "maxLength": 512 }
+      }
+    },
+
+    "assertionRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["urn", "entity_urn", "assertion_type"],
+      "properties": {
+        "urn": { "type": "string", "pattern": "^urn:li:assertion:", "maxLength": 512 },
+        "entity_urn": { "type": "string", "pattern": "^urn:li:", "maxLength": 512 },
+        "assertion_type": { "enum": ["FRESHNESS", "VOLUME", "FIELD", "SQL", "DATASET", "SCHEMA", "CUSTOM"] },
+        "description": { "type": ["string", "null"], "maxLength": 512 },
+        "last_result": { "enum": ["SUCCESS", "FAILURE", "ERROR", "INIT", "UNKNOWN"] },
+        "references_changed_column": {
+          "type": "boolean",
+          "description": "True when the assertion definition names the changed column, which makes it a guaranteed break rather than a probable one."
+        }
+      }
+    },
+
+    "contractRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["urn", "entity_urn", "state"],
+      "properties": {
+        "urn": { "type": "string", "pattern": "^urn:li:dataContract:", "maxLength": 512 },
+        "entity_urn": { "type": "string", "pattern": "^urn:li:", "maxLength": 512 },
+        "state": { "enum": ["ACTIVE", "PENDING"] },
+        "name": { "type": ["string", "null"], "pattern": "^[^\\n\\r]*$", "maxLength": 256 },
+        "references_changed_column": { "type": "boolean" }
+      }
+    },
+
+    "queryUsage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["window_days", "query_count", "source"],
+      "properties": {
+        "window_days": { "type": "integer", "minimum": 1, "maximum": 365 },
+        "query_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Observed queries against the changed dataset in the window, from DataHub usage/queries. Observed fact, not an estimate."
+        },
+        "distinct_user_count": { "type": "integer", "minimum": 0 },
+        "last_queried_at": { "type": ["string", "null"], "format": "date-time" },
+        "source": {
+          "enum": ["datahub_usage", "datahub_queries", "unavailable"],
+          "description": "'unavailable' means usage was not ingested. The severity engine then scores this factor as 0 and a degradation entry is emitted; it must never be silently treated as 'unused'."
+        }
+      }
+    },
+
+    "severity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["score", "level", "rule_version", "computed_by", "factors"],
+      "properties": {
+        "score": { "type": "number", "minimum": 0, "maximum": 100 },
+        "level": { "enum": ["critical", "high", "medium", "low"] },
+        "rule_version": { "type": "string", "pattern": "^sev-v[0-9]+$" },
+        "computed_by": {
+          "const": "deterministic",
+          "description": "Structural guarantee. The severity engine is pure Python with no LLM import; core/tests/test_module_boundaries.py proves it. There is no code path that can write any other value here."
+        },
+        "inputs_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "sha256 of the canonical severity input. Same digest must always yield the same score."
+        },
+        "factors": {
+          "type": "array",
+          "minItems": 7,
+          "maxItems": 7,
+          "items": { "$ref": "#/$defs/severityFactor" },
+          "description": "The complete breakdown that produced the score. All seven factors are always present, including the ones that contributed zero, so a reader can see what was considered and rejected."
+        }
+      }
+    },
+
+    "severityFactor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "raw_value", "normalized", "weight", "contribution"],
+      "properties": {
+        "name": {
+          "enum": [
+            "change_kind_risk",
+            "downstream_reach",
+            "hop_proximity",
+            "query_usage",
+            "contract_presence",
+            "assertion_presence",
+            "critical_consumer"
+          ]
+        },
+        "raw_value": {
+          "type": ["number", "string", "boolean", "null"],
+          "description": "The graph fact this factor was computed from, verbatim, so the score can be re-derived by hand."
+        },
+        "normalized": { "type": "number", "minimum": 0, "maximum": 1 },
+        "weight": { "type": "number", "minimum": 0, "maximum": 100 },
+        "contribution": { "type": "number", "minimum": 0, "maximum": 100 },
+        "description": { "type": "string", "maxLength": 256 }
+      }
+    },
+
+    "explanation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "generated_by", "is_model_generated", "disclaimer"],
+      "description": "The ONLY place in this schema where a language model's output is allowed to appear.",
+      "properties": {
+        "text": { "type": "string", "maxLength": 4000 },
+        "generated_by": { "const": "llm" },
+        "is_model_generated": { "const": true },
+        "disclaimer": {
+          "const": "Model-generated prose. Did not influence severity and did not gate any write.",
+          "description": "A constant, so a downstream reader or agent can rely on it being present and cannot be told otherwise by the model that wrote the text."
+        },
+        "model": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$", "maxLength": 64 },
+        "prompt_version": { "type": "string", "pattern": "^exp-v[0-9]+$" },
+        "untrusted_inputs_referenced": {
+          "type": "array",
+          "default": [],
+          "items": { "type": "string", "pattern": "^ut-[0-9a-f]{12}$" },
+          "description": "Ids of the untrusted texts that were placed in the prompt for this explanation. Makes the blast radius of a prompt injection auditable after the fact."
+        }
+      }
+    },
+
+    "untrustedFinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["untrusted_text_id", "pattern_id", "confidence", "excerpt", "rationale", "effect_on_severity", "is_heuristic"],
+      "properties": {
+        "untrusted_text_id": { "type": "string", "pattern": "^ut-[0-9a-f]{12}$" },
+        "pattern_id": {
+          "type": "string",
+          "pattern": "^inj-[a-z0-9_]+$",
+          "description": "Stable id of the heuristic that fired, e.g. inj-agent_addressed_imperative."
+        },
+        "confidence": { "enum": ["low", "medium", "high"] },
+        "excerpt": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Verbatim excerpt of the matched text, so a human can judge the detector rather than trust it."
+        },
+        "rationale": { "type": "string", "maxLength": 500 },
+        "effect_on_severity": {
+          "const": "none",
+          "description": "Structural guarantee. Detection is reporting only: severity was already computed from graph facts before this ran, and no branch of the code re-scores on a finding."
+        },
+        "is_heuristic": {
+          "const": true,
+          "description": "Honest by construction. Pattern matching on natural language cannot be complete; this is defence in depth behind the architecture, not the defence itself."
+        },
+        "detector_version": { "type": "string", "pattern": "^det-v[0-9]+$" }
+      }
+    },
+
+    "generatedFix": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "path", "target_repo_path", "change_ids", "validation"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^fix-[0-9]{1,4}$" },
+        "path": {
+          "type": "string",
+          "pattern": "^[^\\n\\r]+$",
+          "maxLength": 1024,
+          "description": "Where blast-radius wrote the file locally, relative to --fixes-dir."
+        },
+        "target_repo_path": {
+          "type": "string",
+          "pattern": "^[^\\n\\r]+$",
+          "maxLength": 1024,
+          "description": "Where the file belongs in the data repo. ci/publish commits it here."
+        },
+        "target_repo": { "type": ["string", "null"], "pattern": "^([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?$" },
+        "change_ids": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^cc-[0-9]{1,4}$" } },
+        "language": { "enum": ["sql", "yaml", "python", "markdown"] },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "generated_by": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["model"],
+          "properties": {
+            "model": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$", "maxLength": 64 },
+            "prompt_version": { "type": "string", "pattern": "^fix-v[0-9]+$" },
+            "attempts": { "type": "integer", "minimum": 1, "maximum": 5 }
+          }
+        },
+        "validation": { "$ref": "#/$defs/fixValidation" }
+      }
+    },
+
+    "fixValidation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool", "passed", "command"],
+      "description": "A fix that has not compiled is a suggestion. A fix that has compiled is a patch. The renderer must label them differently.",
+      "properties": {
+        "tool": { "const": "dbt" },
+        "passed": { "type": "boolean" },
+        "command": { "type": "string", "pattern": "^[^\\n\\r]+$", "maxLength": 512 },
+        "exit_code": { "type": "integer" },
+        "attempts": { "type": "integer", "minimum": 1, "maximum": 5 },
+        "output_excerpt": {
+          "type": "string",
+          "maxLength": 8000,
+          "description": "Compiler output, truncated. Present on failure so a human can act on it without re-running."
+        },
+        "validated_at": { "type": "string", "format": "date-time" }
+      }
+    },
+
+    "degradation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability", "reason"],
+      "properties": {
+        "capability": {
+          "enum": [
+            "column_level_lineage",
+            "query_usage",
+            "assertions",
+            "data_contracts",
+            "ownership",
+            "llm_explanation",
+            "fix_generation",
+            "fix_validation",
+            "datahub_writeback"
+          ]
+        },
+        "reason": { "type": "string", "maxLength": 512 },
+        "consequence": {
+          "type": "string",
+          "maxLength": 512,
+          "description": "What the reader should NOT conclude from the report because of this gap."
+        }
+      }
+    }
+  }
+}

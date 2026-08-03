@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/etka/blast-radius/contracts/change_set.schema.json",
+  "title": "ChangeSet",
+  "description": "A parsed data pull-request diff. PRODUCED BY OWNER B (ci/diff), CONSUMED BY OWNER A (core/). This file is the frozen interface between the two halves of the project; see CONTRACT.md before changing anything here. INVARIANT: the only unconstrained free-text string in this schema is untrustedText.value. Every other string is an identifier constrained by pattern, enum or format. Free text is untrusted by construction and must reach a prompt only through core/untrusted.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "pull_request", "column_changes"],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0",
+      "description": "Bumped only by a PR approved by both owners."
+    },
+    "pull_request": { "$ref": "#/$defs/pullRequest" },
+    "column_changes": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/columnChange" },
+      "description": "One entry per (dataset, column) affected by the diff. Order is the diff order and is not significant."
+    },
+    "untrusted_text": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/untrustedText" },
+      "default": [],
+      "description": "Pull-request level free text (title, body, review comments). UNTRUSTED."
+    },
+    "extracted_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC timestamp of extraction, RFC 3339."
+    },
+    "extractor": { "$ref": "#/$defs/extractor" }
+  },
+  "$defs": {
+    "pullRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["number", "repo", "head_sha", "base_sha"],
+      "properties": {
+        "number": { "type": "integer", "minimum": 1 },
+        "repo": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
+          "maxLength": 128,
+          "description": "owner/name, e.g. acme/analytics."
+        },
+        "head_sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+        "base_sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+        "url": { "type": "string", "format": "uri", "maxLength": 512 },
+        "author": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\\[bot\\])?$",
+          "description": "GitHub login. An identifier, not free text."
+        }
+      },
+      "description": "PR title and body are deliberately absent: they are free text and belong in untrusted_text."
+    },
+
+    "columnChange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "dbt_model", "dataset_urn", "dataset_name", "column", "change_kind", "file_path"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^cc-[0-9]{1,4}$",
+          "description": "Stable within one ChangeSet. Referenced by ImpactReport.column_impacts[].change_id."
+        },
+        "dbt_model": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "maxLength": 128,
+          "description": "dbt model name without path or extension, e.g. dim_customers."
+        },
+        "dataset_urn": {
+          "type": "string",
+          "pattern": "^urn:li:dataset:\\(urn:li:dataPlatform:[a-z0-9_+-]+,[^,()]+,[A-Z]+\\)$",
+          "maxLength": 512,
+          "description": "DataHub dataset URN of the model's materialised table. Owner A resolves lineage from this."
+        },
+        "dataset_name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_]+(\\.[A-Za-z0-9_]+)*$",
+          "maxLength": 256,
+          "description": "Fully qualified name, e.g. analytics.dbt_prod.dim_customers."
+        },
+        "column": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "maxLength": 128,
+          "description": "For removed/renamed/type_changed this is the BASE-revision column name. For added it is the HEAD-revision name."
+        },
+        "change_kind": {
+          "enum": ["removed", "renamed", "type_changed", "added"]
+        },
+        "old_value": {
+          "type": ["string", "null"],
+          "maxLength": 256,
+          "pattern": "^[^\\n\\r]*$",
+          "description": "renamed: old column name (equal to `column`). type_changed/removed: the base-revision declared type. added: null."
+        },
+        "new_value": {
+          "type": ["string", "null"],
+          "maxLength": 256,
+          "pattern": "^[^\\n\\r]*$",
+          "description": "renamed: new column name. type_changed/added: the head-revision declared type. removed: null."
+        },
+        "file_path": {
+          "type": "string",
+          "pattern": "^[^\\n\\r]+$",
+          "maxLength": 1024,
+          "description": "Path of the changed file relative to the data repo root, e.g. models/marts/dim_customers.sql."
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "1-indexed line in the head revision, for deep links."
+        },
+        "untrusted_text": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/untrustedText" },
+          "default": [],
+          "description": "Every free-text field the diff touched for this column: dbt YAML descriptions, meta blocks, SQL comments. UNTRUSTED: copied verbatim, never sanitised by the extractor."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "change_kind": { "const": "renamed" } }, "required": ["change_kind"] },
+          "then": {
+            "required": ["old_value", "new_value"],
+            "properties": {
+              "old_value": { "type": "string", "pattern": "^[^\\n\\r]*$" },
+              "new_value": { "type": "string", "pattern": "^[^\\n\\r]*$" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "change_kind": { "const": "type_changed" } }, "required": ["change_kind"] },
+          "then": {
+            "required": ["old_value", "new_value"],
+            "properties": {
+              "old_value": { "type": "string", "pattern": "^[^\\n\\r]*$" },
+              "new_value": { "type": "string", "pattern": "^[^\\n\\r]*$" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "change_kind": { "const": "removed" } }, "required": ["change_kind"] },
+          "then": {
+            "required": ["old_value"],
+            "properties": { "old_value": { "type": "string", "pattern": "^[^\\n\\r]*$" } }
+          }
+        },
+        {
+          "if": { "properties": { "change_kind": { "const": "added" } }, "required": ["change_kind"] },
+          "then": {
+            "required": ["new_value"],
+            "properties": { "new_value": { "type": "string", "pattern": "^[^\\n\\r]*$" } }
+          }
+        }
+      ]
+    },
+
+    "untrustedText": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "field", "source", "value"],
+      "description": "A verbatim copy of free text that originated outside the tool. It may contain instructions aimed at the review agent. See docs/THREAT_MODEL.md.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^ut-[0-9a-f]{12}$",
+          "description": "Content-addressed: 'ut-' + first 12 hex chars of sha256(value). Used as the nonce in the prompt delimiter, which is why it must be derived from the content and not assigned by the producer."
+        },
+        "field": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.\\[\\]/-]+$",
+          "maxLength": 256,
+          "description": "Dotted source path, e.g. models.dim_customers.columns.email.description."
+        },
+        "source": {
+          "enum": [
+            "pull_request_title",
+            "pull_request_body",
+            "pull_request_review_comment",
+            "dbt_yaml_description",
+            "dbt_yaml_meta",
+            "dbt_docs_block",
+            "sql_comment"
+          ]
+        },
+        "value": {
+          "type": "string",
+          "maxLength": 20000,
+          "description": "VERBATIM. The extractor must not strip, escape, summarise or truncate this. Detection and quarantine happen in core/untrusted, never at extraction time, so that what the agent sees is exactly what a human reviewer would see."
+        },
+        "file_path": { "type": "string", "pattern": "^[^\\n\\r]+$", "maxLength": 1024 },
+        "line": { "type": "integer", "minimum": 1 }
+      }
+    },
+
+    "extractor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z0-9-]+$", "maxLength": 64 },
+        "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "method": {
+          "enum": ["sqlglot", "dbt_manifest", "hybrid"],
+          "description": "How the columns were derived. Never 'llm': extraction is deterministic by contract."
+        }
+      }
+    }
+  }
+}

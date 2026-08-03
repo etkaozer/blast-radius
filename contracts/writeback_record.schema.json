@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/etka/blast-radius/contracts/writeback_record.schema.json",
+  "title": "WritebackRecord",
+  "description": "The structured-property payload blast-radius writes back to DataHub after a review. PRODUCED BY OWNER A (core/writeback). Its consumer is not a human: it is the next agent or job that touches this dataset. That is why every field is typed and enumerated rather than rendered into prose. The payload is stored as the value of the structured property urn:li:structuredProperty:io.blastradius.impactRecord on the changed dataset, alongside a urn:li:tag:blast-radius-<level> tag.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "pr_url", "changed_columns", "severity", "detected_at", "status"],
+  "properties": {
+    "schema_version": { "const": "1.0.0" },
+    "pr_url": {
+      "type": "string",
+      "format": "uri",
+      "maxLength": 512,
+      "description": "Canonical link back to the pull request that caused this record."
+    },
+    "repo": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", "maxLength": 128 },
+    "pr_number": { "type": "integer", "minimum": 1 },
+    "changed_columns": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/changedColumn" }
+    },
+    "severity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["score", "level", "rule_version"],
+      "description": "The overall severity of the PR, copied from ImpactReport.overall_severity. Never re-derived here, so the record and the PR comment can never disagree.",
+      "properties": {
+        "score": { "type": "number", "minimum": 0, "maximum": 100 },
+        "level": { "enum": ["critical", "high", "medium", "low"] },
+        "rule_version": { "type": "string", "pattern": "^sev-v[0-9]+$" }
+      }
+    },
+    "detected_at": { "type": "string", "format": "date-time" },
+    "status": {
+      "enum": ["detected", "acknowledged", "fix_proposed", "resolved", "dismissed", "expired"],
+      "description": "Lifecycle state. blast-radius only ever writes 'detected' or 'fix_proposed'. The later states exist so a human or another agent can close the loop without inventing a vocabulary."
+    },
+    "downstream_entity_count": { "type": "integer", "minimum": 0 },
+    "downstream_urns": {
+      "type": "array",
+      "default": [],
+      "items": { "type": "string", "pattern": "^urn:li:", "maxLength": 512 },
+      "description": "Deduplicated across all changed columns. Lets a later agent answer 'what else was implicated' without re-running lineage."
+    },
+    "report_url": {
+      "type": ["string", "null"],
+      "format": "uri",
+      "maxLength": 512,
+      "description": "Link to the rendered review comment or CI artifact."
+    },
+    "fix_branch": {
+      "type": ["string", "null"],
+      "pattern": "^(fix/blast-radius-[0-9]+)?$",
+      "description": "Branch containing the compilable downstream fixes, when one was pushed."
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "const": "blast-radius" },
+        "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "severity_rule_version": {
+          "type": "string",
+          "pattern": "^sev-v[0-9]+$",
+          "description": "Echoed from the report so a record is interpretable without it."
+        }
+      }
+    },
+    "supersedes": {
+      "type": ["string", "null"],
+      "maxLength": 512,
+      "description": "pr_url of the record this one replaces, when a PR is re-reviewed after a push. Records are append-only in spirit; the newest one wins."
+    },
+    "structured_property_urn": {
+      "const": "urn:li:structuredProperty:io.blastradius.impactRecord",
+      "description": "Self-describing, so a reader that finds this JSON in an unexpected place knows where it came from."
+    }
+  },
+  "$defs": {
+    "changedColumn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dataset_urn", "column", "change_kind", "severity_level"],
+      "properties": {
+        "dataset_urn": { "type": "string", "pattern": "^urn:li:dataset:\\(", "maxLength": 512 },
+        "column": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$", "maxLength": 128 },
+        "change_kind": { "enum": ["removed", "renamed", "type_changed", "added"] },
+        "severity_score": { "type": "number", "minimum": 0, "maximum": 100 },
+        "severity_level": { "enum": ["critical", "high", "medium", "low"] },
+        "downstream_count": { "type": "integer", "minimum": 0 },
+        "new_name": {
+          "type": ["string", "null"],
+          "pattern": "^[A-Za-z0-9_]*$",
+          "maxLength": 128,
+          "description": "Set for renames, so a later agent can rewrite references without re-parsing the diff."
+        }
+      }
+    }
+  }
+}

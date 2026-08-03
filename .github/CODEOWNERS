@@ -1,0 +1,44 @@
+# Ownership. Later rules win, so the shared paths at the bottom override the
+# per-owner rules above them.
+#
+# This file is the single source of truth for the split. `blast-radius stubs`
+# parses it to group work by owner, and core/tests/test_stub_inventory.py fails
+# if a source directory is not covered here.
+#
+# See CLAUDE.md and AGENTS.md for the same table in prose, and CONTRIBUTING.md
+# for the branch convention.
+
+# Default: everything not listed below needs both of us.
+*                                   @etka @teammate
+
+# ---------------------------------------------------------------------------
+# OWNER A — etka — the engine
+# ---------------------------------------------------------------------------
+/core/                              @etka
+/skill/                             @etka
+
+# ---------------------------------------------------------------------------
+# OWNER B — teammate — CI, environment, the Action
+# ---------------------------------------------------------------------------
+/ci/                                @teammate
+/env/                               @teammate
+/.github/workflows/                 @teammate
+
+# ---------------------------------------------------------------------------
+# SHARED — changing any of this changes the interface between the two halves.
+# Both owners must approve. Frozen after day 1; see CONTRACT.md.
+# ---------------------------------------------------------------------------
+/contracts/                         @etka @teammate
+/README.md                          @etka @teammate
+/CONTRACT.md                        @etka @teammate
+/CONTRIBUTING.md                    @etka @teammate
+/AGENTS.md                          @etka @teammate
+/CLAUDE.md                          @etka @teammate
+/pyproject.toml                     @etka @teammate
+/Makefile                           @etka @teammate
+/.github/CODEOWNERS                 @etka @teammate
+
+# examples/ is append-only; each side writes into its own subfolder.
+/examples/README.md                 @etka @teammate
+/examples/reports/                  @etka
+/examples/fixes/                    @etka

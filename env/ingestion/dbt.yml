@@ -1,0 +1,41 @@
+# DataHub ingestion recipe for the demo dbt project. OWNER B (@teammate).
+#
+# Run with:
+#   uv run datahub ingest -c env/ingestion/dbt.yml
+#
+# The one setting that matters for this project is column-level lineage. If the
+# dbt source does not emit fine-grained lineage, blast-radius has nothing to be
+# grounded in and the demo demonstrates nothing. env/seed_demo.py asserts that
+# fine-grained lineage was actually emitted rather than assuming it.
+#
+# TODO(verify): confirm the option names below against the installed
+# acryl-datahub version before the demo. Recipe keys have moved between minor
+# releases, and a silently ignored key here is the failure mode that would cost
+# the most on demo day.
+
+source:
+  type: dbt
+  config:
+    manifest_path: env/dbt_project/target/manifest.json
+    catalog_path: env/dbt_project/target/catalog.json
+    run_results_paths:
+      - env/dbt_project/target/run_results.json
+    target_platform: duckdb
+
+    # Column-level lineage. Non-negotiable for this project.
+    include_column_lineage: true
+
+    # Bring dbt descriptions and meta across, because they are part of the
+    # threat model: DataHub documentation is an untrusted-text source for
+    # blast-radius exactly like a diff description is.
+    enable_meta_mapping: true
+
+    entities_enabled:
+      test_results: true
+      model_performance: false
+
+sink:
+  type: datahub-rest
+  config:
+    server: "${DATAHUB_GMS_URL:-http://localhost:8080}"
+    token: "${DATAHUB_GMS_TOKEN:-}"

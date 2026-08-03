@@ -1,0 +1,6 @@
+id,first_name,last_name,email,signup_channel,signup_date
+1,Ada,Lovelace,ada@example.com,organic,2025-01-14
+2,Grace,Hopper,grace@example.com,referral,2025-02-02
+3,Alan,Turing,alan@example.com,paid,2025-02-19
+4,Katherine,Johnson,katherine@example.com,partner,2025-03-07
+5,Edsger,Dijkstra,edsger@example.com,organic,2025-03-21
