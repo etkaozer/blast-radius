@@ -125,8 +125,16 @@ def publish(report_path: Path, comment_path: Path, fixes_dir: Path | None, token
         )
     except NotImplementedError as exc:
         _halt(exc)
+    except BlastRadiusError as exc:
+        click.echo(f"✗ {exc}", err=True)
+        sys.exit(EXIT_BAD_INPUT)
 
-    click.echo(f"✓ comment: {url}")
+    if url:
+        click.echo(f"✓ comment: {url}")
+    else:
+        # Deliberately not an error exit: a review that could not be posted is
+        # worth surfacing, but it is not worth failing a merge over.
+        click.echo("! the review comment could not be posted; see the log", err=True)
     if branch:
         click.echo(f"✓ fixes pushed to {branch}")
 
