@@ -172,7 +172,41 @@ class DataHubReader(Protocol):
 def contract_covers_column(state: ContractState, references_changed_column: bool | None) -> bool:
     """Return True when a contract should count toward the contract_presence factor.
 
-    A PENDING contract still counts: it represents an agreement someone is about
-    to depend on, and breaking it silently is how a contract becomes shelfware.
+    Coverage means the contract references the column under review. A contract
+    that governs a different column of the same dataset is not evidence that
+    THIS change breaks an agreement, and counting it awarded the full 12-point
+    factor to any dataset that happened to have a contract attached anywhere.
+
+    A PENDING contract still counts once it covers the column: it represents an
+    agreement someone is about to depend on, and breaking it silently is how a
+    contract becomes shelfware. The state test is retained rather than dropped
+    because it states the intent, and because widening `ContractState` later
+    would otherwise silently start counting states nobody has considered.
+
+    `None` means the reader could not determine coverage. It does NOT count —
+    an unmeasured factor must never inflate a score — and obliges the caller to
+    emit a `data_contracts` degradation so the gap is visible in the report.
     """
-    return state in ("ACTIVE", "PENDING") or bool(references_changed_column)
+    return state in ("ACTIVE", "PENDING") and references_changed_column is True
+
+
+def assertion_covers_column(references_changed_column: bool | None) -> bool:
+    """Return True when an assertion should count toward the assertion_presence factor.
+
+    Same rule as `contract_covers_column`, and for the same reason: an assertion
+    on an unrelated column of the same dataset says nothing about whether this
+    change breaks anything. `None` is unmeasured, does not count, and obliges
+    the caller to degrade.
+    """
+    return references_changed_column is True
+
+
+def coverage_is_unknown(references_changed_column: bool | None) -> bool:
+    """Return True when coverage could not be determined, as opposed to being absent.
+
+    The caller uses this to tell "there is an assertion and it does not name the
+    column" (a measured no) from "there is an assertion and we could not read
+    which column it names" (a gap), which score identically and read nothing
+    alike.
+    """
+    return references_changed_column is None

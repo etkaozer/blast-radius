@@ -58,7 +58,12 @@ def factors_for(severity_input: SeverityInput) -> tuple[SeverityFactor, ...]:
     si = severity_input
 
     usage_description = (
-        "Query usage was unavailable in DataHub; scored as zero and reported as a degradation."
+        (
+            "Query usage was UNAVAILABLE in DataHub, not zero. It scored zero because "
+            "nothing was measured, not because the column is unused, so the score this "
+            f"factor belongs to is a LOWER BOUND: up to {WEIGHTS['query_usage']} further "
+            "points could not be assessed."
+        )
         if si.query_count is None
         else f"{si.query_count} observed queries in the usage window."
     )
@@ -97,17 +102,17 @@ def factors_for(severity_input: SeverityInput) -> tuple[SeverityFactor, ...]:
             "contract_presence",
             si.has_data_contract,
             normalize_flag(si.has_data_contract),
-            "A data contract covers the changed dataset."
+            "A data contract references the changed column."
             if si.has_data_contract
-            else "No data contract covers the changed dataset.",
+            else "No data contract references the changed column.",
         ),
         _factor(
             "assertion_presence",
             si.has_assertion,
             normalize_flag(si.has_assertion),
-            "An assertion references the changed dataset."
+            "An assertion references the changed column."
             if si.has_assertion
-            else "No assertion references the changed dataset.",
+            else "No assertion references the changed column.",
         ),
         _factor(
             "critical_consumer",
@@ -155,3 +160,70 @@ def overall(severities: tuple[Severity, ...]) -> Severity:
         msg = "overall() requires at least one column severity"
         raise ValueError(msg)
     return max(severities, key=lambda s: s.score)
+
+
+# ---------------------------------------------------------------------------
+# Lower-bound reporting.
+#
+# The formula is untouched: an unmeasured factor still contributes zero, and a
+# score is still the sum of its contributions. What these functions add is the
+# ability to SAY so. Without them a reader cannot tell 64.5 ("we looked, and
+# there is not much usage") from 64.5 ("we could not look"), and those two
+# reports deserve different reactions.
+#
+# There is no field on `Severity` for this, and `contracts/` is frozen, so the
+# statement travels in the two places the schema already allows free text: the
+# factor's `description`, written above, and a `Degradation` built by the
+# caller from `forgone_points` below.
+# ---------------------------------------------------------------------------
+
+#: Factors whose `raw_value is None` means "not measured".
+#:
+#: Only `query_usage` qualifies, and the distinction is not cosmetic.
+#: `usage_count()` returns None exactly when DataHub had no usage aspect, so a
+#: None there is a gap. `hop_proximity` is also None-able, but its None means
+#: nothing was found downstream — a real answer about the graph, arrived at by
+#: looking. Treating the two alike would either hide a gap or invent one.
+UNMEASURABLE_FACTORS: Final[frozenset[str]] = frozenset({"query_usage"})
+
+
+def unmeasured_factors(severity: Severity) -> tuple[SeverityFactor, ...]:
+    """Return the factors that scored zero because nothing was measured."""
+    return tuple(
+        factor
+        for factor in severity.factors
+        if factor.name in UNMEASURABLE_FACTORS and factor.raw_value is None
+    )
+
+
+def forgone_points(severity: Severity) -> float:
+    """Return the maximum points the unmeasured factors could have contributed.
+
+    The honest upper bound on what is missing: every unmeasured factor scored
+    zero, and the most any of them could have scored is its full weight.
+    """
+    return round(sum(factor.weight for factor in unmeasured_factors(severity)), PRECISION)
+
+
+def is_lower_bound(severity: Severity) -> bool:
+    """Return True when at least one factor could not be measured.
+
+    A True here means the real severity is somewhere in
+    `[score, score + forgone_points(severity)]`, and that the reported level may
+    be an under-statement.
+    """
+    return bool(unmeasured_factors(severity))
+
+
+def lower_bound_note(severity: Severity) -> str | None:
+    """One sentence for a report degradation, or None when everything was measured."""
+    missing = unmeasured_factors(severity)
+    if not missing:
+        return None
+    names = ", ".join(factor.name for factor in missing)
+    ceiling = round(severity.score + forgone_points(severity), PRECISION)
+    return (
+        f"{severity.score} is a LOWER BOUND, not a measurement: {names} could not be "
+        f"measured and scored zero. The true severity is between {severity.score} and "
+        f"{ceiling} ({level_for(ceiling)}). Read the level as a floor."
+    )

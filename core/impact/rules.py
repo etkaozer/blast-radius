@@ -8,7 +8,7 @@ of the analysis can be exercised without a running DataHub.
 from __future__ import annotations
 
 from contracts.models import AssertionRef, ContractRef, DownstreamEntity, QueryUsage
-from core.datahub.base import contract_covers_column
+from core.datahub.base import assertion_covers_column, contract_covers_column, coverage_is_unknown
 from core.severity.rules import SeverityInput, is_critical_entity_type
 
 
@@ -44,8 +44,34 @@ def has_critical_consumer(entities: tuple[DownstreamEntity, ...]) -> bool:
 
 
 def has_covering_contract(contracts: tuple[ContractRef, ...]) -> bool:
-    """Return True when any attached data contract counts for scoring."""
+    """Return True when any attached data contract covers the changed column."""
     return any(contract_covers_column(c.state, c.references_changed_column) for c in contracts)
+
+
+def has_covering_assertion(assertions: tuple[AssertionRef, ...]) -> bool:
+    """Return True when any attached assertion references the changed column.
+
+    Deliberately not `len(assertions) > 0`. A dataset-level count awards the
+    factor to a change that no assertion actually watches, which is both wrong
+    and, since assertions are cheap to add, trivially inflatable.
+    """
+    return any(assertion_covers_column(a.references_changed_column) for a in assertions)
+
+
+def unknown_coverage(
+    assertions: tuple[AssertionRef, ...],
+    contracts: tuple[ContractRef, ...],
+) -> tuple[str, ...]:
+    """Return the URNs whose column coverage could not be determined.
+
+    These score as "does not cover", because an unmeasured factor must not
+    inflate a score. The caller turns a non-empty result into a degradation so
+    that the report distinguishes a measured no from an unread one.
+    """
+    return (
+        *(a.urn for a in assertions if coverage_is_unknown(a.references_changed_column)),
+        *(c.urn for c in contracts if coverage_is_unknown(c.references_changed_column)),
+    )
 
 
 def usage_count(usage: QueryUsage) -> int | None:
@@ -79,6 +105,6 @@ def build_severity_input(
         nearest_hop_distance=nearest_hop(unique),
         query_count=usage_count(usage),
         has_data_contract=has_covering_contract(contracts),
-        has_assertion=len(assertions) > 0,
+        has_assertion=has_covering_assertion(assertions),
         has_critical_consumer=has_critical_consumer(unique),
     )

@@ -46,8 +46,8 @@ from contracts.models import (
 from core.config import Settings
 from core.datahub.base import DataHubReader
 from core.errors import DataHubAccessError
-from core.impact.rules import build_severity_input, distinct_downstream
-from core.severity.scoring import compute
+from core.impact.rules import build_severity_input, distinct_downstream, unknown_coverage
+from core.severity.scoring import compute, lower_bound_note
 
 _T = "core.impact.analyzer"
 
@@ -254,18 +254,6 @@ def analyze_column(
         "'nobody queries this table'.",
         degradations,
     )
-    if usage.source == "unavailable":
-        degradations.append(
-            Degradation(
-                capability="query_usage",
-                reason="DataHub has no usage statistics for this dataset in the window",
-                consequence=(
-                    "query_usage scored zero because nothing was measured, not because "
-                    "the column is unused. Up to 15 points may be missing from the score."
-                ),
-            )
-        )
-
     # -- 5. severity, from graph facts only ----------------------------------
     # Nothing textual has been read at this point, and no prompt exists. The
     # ordering is the security control; see core/pipeline.py.
@@ -278,6 +266,36 @@ def analyze_column(
             contracts,
         )
     )
+
+    # A factor that could not be measured scored zero, which makes the number
+    # an under-statement rather than an estimate. The formula is not adjusted
+    # for it — guessing would be worse — so the report says so instead, and
+    # says how far the true score could be above what is printed.
+    note = lower_bound_note(severity)
+    if note is not None:
+        degradations.append(
+            Degradation(
+                capability="query_usage",
+                reason="DataHub has no usage statistics for this dataset in the window",
+                consequence=note,
+            )
+        )
+
+    # Coverage that could not be read is a different gap from coverage that is
+    # genuinely absent, and only this branch can tell them apart.
+    unread = unknown_coverage(assertions, contracts)
+    if unread:
+        degradations.append(
+            Degradation(
+                capability="assertions",
+                reason=f"column coverage could not be determined for: {', '.join(unread)}"[:512],
+                consequence=(
+                    "Those assertions or contracts scored as not covering the changed "
+                    "column, because an unmeasured factor must not inflate a score. If "
+                    "any of them does reference it, the real severity is higher."
+                ),
+            )
+        )
 
     impact = ColumnImpact(
         change_id=change.id,

@@ -272,7 +272,11 @@ def test_unmeasured_usage_is_reported_even_when_the_read_succeeds() -> None:
 
     usage_degradations = [d for d in degradations if d.capability == "query_usage"]
     assert usage_degradations, "unmeasured usage must never look like measured zero"
-    assert "not because" in (usage_degradations[0].consequence or "")
+    # The consequence now carries the lower-bound statement and the range the
+    # true severity lies in, rather than a hardcoded "up to 15 points" sentence.
+    consequence = usage_degradations[0].consequence or ""
+    assert "LOWER BOUND" in consequence
+    assert "true severity is between" in consequence
 
 
 def test_a_measured_zero_is_not_a_degradation() -> None:
@@ -391,3 +395,83 @@ def test_a_column_survives_every_single_read_failing() -> None:
     impacts, _ = analyze_change_set(change_set, reader, SETTINGS)  # type: ignore[arg-type]
     # Every individual read degraded, but the column still produced an impact.
     assert len(impacts) == 1
+
+
+# ---------------------------------------------------------------------------
+# Regression: column-level coverage, through the analyzer.
+# ---------------------------------------------------------------------------
+
+
+def test_an_irrelevant_contract_no_longer_inflates_the_score() -> None:
+    """Fixture 02 scores 96.0 with a contract that names the changed column.
+
+    Point the same contract at a different column and the 12-point
+    contract_presence factor must drop out. Before the fix it stayed, because
+    `contract_covers_column` returned True for any ACTIVE or PENDING contract.
+    """
+    change, expected = fixture_pair("02_removal_contract")
+
+    elsewhere = expected.model_copy(
+        update={
+            "data_contracts": tuple(
+                c.model_copy(update={"references_changed_column": False})
+                for c in expected.data_contracts
+            )
+        }
+    )
+    impact, _ = analyze_column(change, ReplayReader(elsewhere), SETTINGS)  # type: ignore[arg-type]
+
+    contract_factor = next(f for f in impact.severity.factors if f.name == "contract_presence")
+    assert contract_factor.contribution == 0.0
+    assert impact.severity.score == expected.severity.score - 12.0
+
+
+def test_an_irrelevant_assertion_no_longer_inflates_the_score() -> None:
+    """Same for the 4-point assertion factor, which was `len(assertions) > 0`."""
+    change, expected = fixture_pair("03_adversarial_description")
+
+    elsewhere = expected.model_copy(
+        update={
+            "assertions": tuple(
+                a.model_copy(update={"references_changed_column": False})
+                for a in expected.assertions
+            )
+        }
+    )
+    impact, _ = analyze_column(change, ReplayReader(elsewhere), SETTINGS)  # type: ignore[arg-type]
+
+    assertion_factor = next(f for f in impact.severity.factors if f.name == "assertion_presence")
+    assert assertion_factor.contribution == 0.0
+    assert impact.severity.score == expected.severity.score - 4.0
+
+
+def test_unreadable_coverage_is_reported_rather_than_assumed() -> None:
+    """`None` scores as not-covering, and says so, instead of counting silently."""
+    change, expected = fixture_pair("02_removal_contract")
+
+    unknown = expected.model_copy(
+        update={
+            "data_contracts": tuple(
+                c.model_copy(update={"references_changed_column": None})
+                for c in expected.data_contracts
+            ),
+            "assertions": tuple(
+                a.model_copy(update={"references_changed_column": None})
+                for a in expected.assertions
+            ),
+        }
+    )
+    impact, degradations = analyze_column(change, ReplayReader(unknown), SETTINGS)  # type: ignore[arg-type]
+
+    assert impact.severity.score == expected.severity.score - 16.0
+    coverage = [d for d in degradations if "coverage could not be determined" in d.reason]
+    assert coverage, "an unread coverage flag must be visible in the report"
+
+
+def test_the_adversarial_fixture_still_scores_seventy_seven() -> None:
+    """The headline number. Its assertion genuinely names the removed column."""
+    change, expected = fixture_pair("03_adversarial_description")
+    impact, _ = analyze_column(change, ReplayReader(expected), SETTINGS)  # type: ignore[arg-type]
+
+    assert impact.severity.score == 77.0
+    assert impact.severity.level == "critical"
