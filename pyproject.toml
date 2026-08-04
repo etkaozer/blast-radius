@@ -36,7 +36,11 @@ agent = ["anthropic>=0.40"]
 # OWNER A: DataHub Python SDK access path and write-back fallback (core/datahub, core/writeback).
 datahub = ["acryl-datahub>=0.15"]
 # OWNER B: deterministic SQL/YAML diff extraction (ci/diff).
-ci = ["sqlglot>=25.0"]
+# PyYAML reads dbt schema.yml. It has to be a real parser: descriptions are
+# collected verbatim and their content-addressed ids are hashes of exactly those
+# bytes, so a hand-rolled reader that mishandles a folded scalar would produce an
+# id that no longer matches its own content.
+ci = ["sqlglot>=25.0", "pyyaml>=6.0.1"]
 
 [project.urls]
 Homepage = "https://github.com/etka/blast-radius"
@@ -53,6 +57,7 @@ dev = [
   "mypy>=1.11",
   "pre-commit>=3.8",
   "types-jsonschema",
+  "types-PyYAML",
 ]
 
 [tool.hatch.build.targets.wheel]

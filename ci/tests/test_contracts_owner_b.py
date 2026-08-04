@@ -41,19 +41,16 @@ ATTACK = (
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(raises=NotImplementedError, strict=True, reason="OWNER B: ci.diff.extract")
 def test_projection_resolves_aliases_to_output_names() -> None:
     columns = parse_projection("select id, email as email_address from t")
     assert [name for name, _ in columns] == ["id", "email_address"]
 
 
-@pytest.mark.xfail(raises=NotImplementedError, strict=True, reason="OWNER B: ci.diff.extract")
 def test_jinja_does_not_defeat_the_parser() -> None:
     columns = parse_projection(RENAME_DIFF.head_content or "")
     assert [name for name, _ in columns] == ["id", "email_address", "signup_channel"]
 
 
-@pytest.mark.xfail(raises=NotImplementedError, strict=True, reason="OWNER B: ci.diff.extract")
 def test_a_rename_is_reported_as_one_change_not_two() -> None:
     changes = diff_columns(RENAME_DIFF)
     assert len(changes) == 1
@@ -62,13 +59,11 @@ def test_a_rename_is_reported_as_one_change_not_two() -> None:
     assert changes[0].new_value == "email_address"
 
 
-@pytest.mark.xfail(raises=NotImplementedError, strict=True, reason="OWNER B: ci.diff.extract")
 def test_change_ids_are_stable_for_stable_input() -> None:
     """Re-running on a pushed commit must produce comparable reports."""
     assert [c.id for c in diff_columns(RENAME_DIFF)] == [c.id for c in diff_columns(RENAME_DIFF)]
 
 
-@pytest.mark.xfail(raises=NotImplementedError, strict=True, reason="OWNER B: ci.diff.extract")
 def test_untrusted_text_is_collected_verbatim_and_content_addressed() -> None:
     """The single most important thing OWNER B must not get wrong.
 
