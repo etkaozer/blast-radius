@@ -48,11 +48,16 @@ def extract(
 ) -> None:
     """Extract changed columns from the dbt diff into a ChangeSet."""
     from ci.diff.extract import build_change_set
+    from ci.diff.git import collect_file_diffs
 
     try:
+        file_diffs = collect_file_diffs(base_sha, head_sha, project_dir=project_dir)
+        if not file_diffs:
+            click.echo("✓ no dbt model changed; nothing to review")
+            sys.exit(EXIT_OK)
         change_set = build_change_set(
             pull_request=_pull_request_ref(repo, pr_number, base_sha, head_sha),
-            file_diffs=(),
+            file_diffs=file_diffs,
             manifest_path=project_dir / "target" / "manifest.json",
         )
     except NotImplementedError as exc:
