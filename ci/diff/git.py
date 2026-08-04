@@ -86,6 +86,16 @@ def _git(args: list[str], repo_dir: Path) -> str:
     return completed.stdout.decode("utf-8", errors="replace")
 
 
+def run_git(args: list[str], repo_dir: Path) -> str:
+    """Run a git command and return stdout. Shared with `ci/publish`.
+
+    Exposed so there is one place that knows how this project shells out to
+    git — one timeout, one error type, one guarantee that the command is an
+    argument list rather than a shell string.
+    """
+    return _git(args, repo_dir)
+
+
 def repository_root(start: Path | None = None) -> Path:
     """Return the top level of the git repository containing `start`."""
     return Path(_git(["rev-parse", "--show-toplevel"], start or Path.cwd()).strip())
