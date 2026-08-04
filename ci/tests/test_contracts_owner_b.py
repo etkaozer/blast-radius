@@ -1,15 +1,14 @@
 """OWNER B's acceptance tests, written before the implementation.
 
-Every test here is `xfail(strict=True)` against `NotImplementedError`. That
-means:
+Every test here began as `xfail(strict=True)` against `NotImplementedError`, so
+that the acceptance criteria were written down while the contract was fresh
+rather than reconstructed at 2am on day six. Strict xfail meant the markers
+could not rot: implementing a stub turned the expected failure into an XPASS,
+which fails the suite until the marker is deleted deliberately.
 
-* today they pass, as expected failures, so `make test` is green;
-* the day the stub is implemented, the test either passes for real — at which
-  point strict xfail turns the XPASS into a failure and you delete the marker —
-  or it fails for a real reason and you fix it.
-
-So the markers cannot rot, and the acceptance criteria are written down now,
-while the contract is fresh, rather than reconstructed at 2am on day six.
+Every marker has now been deleted, which is what it looks like when the
+criteria are met: these are ordinary passing tests, and they fail for real if a
+later change breaks one.
 
 These tests only import `contracts` and `ci`. They never touch `core/`.
 """
@@ -17,8 +16,6 @@ These tests only import `contracts` and `ci`. They never touch `core/`.
 from __future__ import annotations
 
 from pathlib import Path
-
-import pytest
 
 from ci.diff.extract import FileDiff, collect_untrusted_text, diff_columns, parse_projection
 from ci.publish.github import branch_name_for
@@ -83,20 +80,17 @@ def test_untrusted_text_is_collected_verbatim_and_content_addressed() -> None:
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(raises=NotImplementedError, strict=True, reason="OWNER B: ci.render.markdown")
 def test_comment_is_idempotent() -> None:
     report = load_impact_report(fixture_dir("01_rename") / "expected_impact_report.json")
     assert render_comment(report) == render_comment(report)
 
 
-@pytest.mark.xfail(raises=NotImplementedError, strict=True, reason="OWNER B: ci.render.markdown")
 def test_comment_carries_the_update_marker() -> None:
     """Without the marker, every push posts a new comment and the tool gets muted."""
     report = load_impact_report(fixture_dir("01_rename") / "expected_impact_report.json")
     assert COMMENT_MARKER in render_comment(report)
 
 
-@pytest.mark.xfail(raises=NotImplementedError, strict=True, reason="OWNER B: ci.render.markdown")
 def test_failed_fixes_are_not_presented_as_verified() -> None:
     """Fixture 02 contains a fix whose dbt compile failed. It must be labelled."""
     report = load_impact_report(fixture_dir("02_removal_contract") / "expected_impact_report.json")
@@ -104,14 +98,12 @@ def test_failed_fixes_are_not_presented_as_verified() -> None:
     assert "did not compile" in body or "not verified" in body
 
 
-@pytest.mark.xfail(raises=NotImplementedError, strict=True, reason="OWNER B: ci.render.markdown")
 def test_model_prose_is_always_labelled() -> None:
     report = load_impact_report(fixture_dir("01_rename") / "expected_impact_report.json")
     body = render_comment(report).lower()
     assert "model-generated" in body
 
 
-@pytest.mark.xfail(raises=NotImplementedError, strict=True, reason="OWNER B: ci.render.markdown")
 def test_untrusted_text_is_shown_and_marked_as_not_affecting_severity() -> None:
     report = load_impact_report(
         fixture_dir("03_adversarial_description") / "expected_impact_report.json"
@@ -121,7 +113,6 @@ def test_untrusted_text_is_shown_and_marked_as_not_affecting_severity() -> None:
     assert "did not affect" in body.lower() or "no effect" in body.lower()
 
 
-@pytest.mark.xfail(raises=NotImplementedError, strict=True, reason="OWNER B: ci.render.markdown")
 def test_quoting_neutralises_mentions_without_losing_content() -> None:
     quoted = quote_untrusted(f"@everyone {ATTACK}")
     assert "@everyone" not in quoted
