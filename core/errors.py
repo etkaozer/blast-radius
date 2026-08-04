@@ -12,6 +12,7 @@ from contracts.errors import OWNER_A, OWNER_B, BlastRadiusError, StubNotImplemen
 __all__ = [
     "OWNER_A",
     "OWNER_B",
+    "AgentError",
     "BlastRadiusError",
     "ConfigurationError",
     "DataHubAccessError",
@@ -19,6 +20,16 @@ __all__ = [
     "StubNotImplementedError",
     "WriteCapabilityError",
 ]
+
+
+class AgentError(BlastRadiusError):
+    """A call to the language model failed.
+
+    Never fatal to an analysis. Severity, lineage and the untrusted findings are
+    all computed before the model is reached, so the caller downgrades to a
+    report with no prose and an `llm_explanation` degradation rather than
+    losing a review that was already complete.
+    """
 
 
 class ConfigurationError(BlastRadiusError):

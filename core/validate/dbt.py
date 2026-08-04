@@ -12,13 +12,15 @@ with.
 
 from __future__ import annotations
 
+import shutil
+import subprocess
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
 from contracts.models import FixValidation
-from core.errors import OWNER_A, StubNotImplementedError
 
 _T = "core.validate.dbt"
 
@@ -30,6 +32,24 @@ MAX_ATTEMPTS: Final[int] = 3
 #: Compiler output is quoted into the report; this bound matches
 #: `fixValidation.output_excerpt` in the schema.
 MAX_OUTPUT_CHARS: Final[int] = 8000
+
+#: Wall-clock budget for one `dbt compile`. A hung dbt must not hang a review:
+#: the PR comment is worth more on time and honest than late and complete.
+COMPILE_TIMEOUT_SECONDS: Final[int] = 120
+
+#: Never copied into the scratch project. `target/` and `dbt_packages/` are
+#: build output that dbt regenerates, and copying them makes the copy slower
+#: than the compile it exists to enable.
+_IGNORED = shutil.ignore_patterns(
+    "target", "dbt_packages", "logs", ".git", ".venv", "__pycache__", "*.duckdb.wal"
+)
+
+#: Exit codes for the failures that are ours rather than dbt's. 127 and 124 are
+#: the shell's conventions for "command not found" and "timed out", and reusing
+#: them means a reader of the report does not need our private vocabulary.
+_EXIT_DBT_MISSING: Final[int] = 127
+_EXIT_TIMEOUT: Final[int] = 124
+_EXIT_INTERNAL: Final[int] = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,12 +81,89 @@ def compile_model(
       is an expected outcome that gets reported, not an exception.
     - Time out. A hung dbt process must not hang the review.
     """
-    raise StubNotImplementedError(
-        f"{_T}.compile_model",
-        OWNER_A,
-        "apply the candidate in a scratch copy and run `dbt compile --select <model>`; "
-        "return CompileResult without raising on failure",
+    command = f"dbt compile --select {model_name}"
+    with tempfile.TemporaryDirectory(prefix="blast-radius-dbt-") as scratch_root:
+        scratch = Path(scratch_root) / project_dir.name
+
+        # Preparing the copy and running the compiler fail in ways that look
+        # alike to `except` and nothing alike to a reader. A missing project
+        # directory reported as "dbt is not installed" costs somebody an hour,
+        # so the two are caught separately and never share a message.
+        try:
+            shutil.copytree(project_dir, scratch, ignore=_IGNORED, symlinks=True)
+            destination = scratch / _relative_to_project(project_dir, target_path)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text(content, encoding="utf-8")
+        except OSError as exc:
+            return CompileResult(
+                passed=False,
+                command=command,
+                exit_code=_EXIT_INTERNAL,
+                output=f"could not prepare a scratch copy of {project_dir}: {exc}",
+            )
+
+        argv = ["dbt", "compile", "--select", model_name]
+        if (scratch / "profiles.yml").is_file():
+            # dbt looks in ~/.dbt otherwise, which in CI is empty.
+            argv += ["--profiles-dir", "."]
+
+        try:
+            completed = subprocess.run(  # fixed argv, never a shell string
+                argv,
+                cwd=scratch,
+                capture_output=True,
+                text=True,
+                timeout=COMPILE_TIMEOUT_SECONDS,
+                check=False,
+            )
+        except FileNotFoundError:
+            return CompileResult(
+                passed=False,
+                command=command,
+                exit_code=_EXIT_DBT_MISSING,
+                output=(
+                    "dbt was not found on PATH. Generated fixes are reported as unverified "
+                    "suggestions rather than as patches; install dbt to have them compiled."
+                ),
+            )
+        except subprocess.TimeoutExpired:
+            return CompileResult(
+                passed=False,
+                command=command,
+                exit_code=_EXIT_TIMEOUT,
+                output=f"dbt compile exceeded {COMPILE_TIMEOUT_SECONDS}s and was terminated.",
+            )
+        except OSError as exc:
+            return CompileResult(
+                passed=False,
+                command=command,
+                exit_code=_EXIT_INTERNAL,
+                output=f"could not run dbt: {exc}",
+            )
+
+    return CompileResult(
+        passed=completed.returncode == 0,
+        command=command,
+        exit_code=completed.returncode,
+        output=truncate_output((completed.stdout or "") + (completed.stderr or "")),
     )
+
+
+def _relative_to_project(project_dir: Path, target_path: Path) -> Path:
+    """Return `target_path` as a path inside the project, however it was given.
+
+    Callers hold either a repo-relative path from the change set
+    (`models/marts/dim_customers.sql`) or an absolute one they resolved
+    themselves. Both have to land in the same place in the scratch copy.
+    """
+    if not target_path.is_absolute():
+        return target_path
+    try:
+        return target_path.relative_to(project_dir.resolve())
+    except ValueError:
+        # Absolute but outside the project: keep only the file name rather than
+        # writing outside the scratch directory.
+        return Path(target_path.name)
 
 
 def truncate_output(output: str, limit: int = MAX_OUTPUT_CHARS) -> str:

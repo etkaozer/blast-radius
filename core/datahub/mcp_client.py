@@ -175,7 +175,9 @@ class McpDataHubReader:
             f"{_T}.get_owners", OWNER_A, "MCP ownership read, deduplicated, with source set"
         )
 
-    def get_assertions(self, dataset_urn: str) -> tuple[AssertionRef, ...]:
+    def get_assertions(
+        self, dataset_urn: str, column: str | None = None
+    ) -> tuple[AssertionRef, ...]:
         """Return assertions attached to a dataset.
 
         Contract: set `references_changed_column` when the assertion definition
@@ -186,7 +188,9 @@ class McpDataHubReader:
             f"{_T}.get_assertions", OWNER_A, "MCP assertions read with column reference detection"
         )
 
-    def get_data_contracts(self, dataset_urn: str) -> tuple[ContractRef, ...]:
+    def get_data_contracts(
+        self, dataset_urn: str, column: str | None = None
+    ) -> tuple[ContractRef, ...]:
         """Return data contracts attached to a dataset.
 
         Contract: include PENDING contracts as well as ACTIVE ones; see

@@ -134,6 +134,7 @@ def check_write_path(settings: Settings) -> CheckResult:
             gms_url=settings.datahub_gms_url,
             mcp_server_command=settings.mcp_server_command,
             mutation_env_flag=settings.mutation_enabled,
+            token=settings.datahub_token,
         )
     except NotImplementedError as exc:
         return CheckResult("write path", "not_implemented", str(exc).splitlines()[0], OWNER_A)

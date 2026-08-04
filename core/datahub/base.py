@@ -151,12 +151,21 @@ class DataHubReader(Protocol):
         """Return the owners of an entity, including container-inherited ones."""
         ...
 
-    def get_assertions(self, dataset_urn: str) -> tuple[AssertionRef, ...]:
-        """Return assertions attached to a dataset."""
+    def get_assertions(
+        self, dataset_urn: str, column: str | None = None
+    ) -> tuple[AssertionRef, ...]:
+        """Return assertions attached to a dataset.
+
+        `column` is the column under review. Without it an implementation cannot
+        populate `references_changed_column`, which is the field that separates
+        "this assertion will definitely fail" from "this dataset has assertions".
+        """
         ...
 
-    def get_data_contracts(self, dataset_urn: str) -> tuple[ContractRef, ...]:
-        """Return data contracts attached to a dataset."""
+    def get_data_contracts(
+        self, dataset_urn: str, column: str | None = None
+    ) -> tuple[ContractRef, ...]:
+        """Return data contracts attached to a dataset, ACTIVE and PENDING."""
         ...
 
 
