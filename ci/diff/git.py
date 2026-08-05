@@ -181,7 +181,13 @@ def collect_file_diffs(
     root = (repo_dir or repository_root()).resolve()
     project = (project_dir or root).resolve()
     try:
-        prefix = str(project.relative_to(root)) if project != root else ""
+        # `as_posix`, not `str`: git speaks forward slashes on every platform,
+        # and this prefix is used both as a pathspec and to strip the project
+        # directory off git's own output. On Windows `str` yields `env\\dbt_project`,
+        # which matches nothing git ever prints, and the result is an empty diff
+        # rather than an error — a silent "no changes" on the one code path whose
+        # job is to notice changes.
+        prefix = project.relative_to(root).as_posix() if project != root else ""
     except ValueError as exc:
         msg = f"{project} is not inside the git repository at {root}"
         raise GitError(msg) from exc
