@@ -17,28 +17,82 @@ attack the test suite covers.
 
 from __future__ import annotations
 
+import hashlib
+import os
 import shutil
 import subprocess
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Final
+from typing import TYPE_CHECKING, Any, Final
 
-from contracts.errors import OWNER_B, BlastRadiusError, StubNotImplementedError
+from contracts.errors import BlastRadiusError
 from env.schema_yaml import (
     read_column_description,
     read_column_meta,
     set_column_description_and_meta,
 )
 
-_T = "env.seed_demo"
+if TYPE_CHECKING:
+    from datahub.ingestion.graph.client import DataHubGraph
 
+REPO_ROOT = Path(__file__).parent.parent
 PROJECT_DIR = Path(__file__).parent / "dbt_project"
 RECIPE_DIR = Path(__file__).parent / "ingestion"
 SCHEMA_YML = PROJECT_DIR / "models" / "staging" / "schema.yml"
+DBT_RECIPE = RECIPE_DIR / "dbt.yml"
+
+#: Where `run_dbt` parks the build's run results so `dbt docs generate` cannot
+#: overwrite them. Must match `run_results_paths` in the recipe.
+RUN_RESULTS_COPY: Final[str] = "run_results.build.json"
+
+#: The demo warehouse as DataHub actually names it after ingestion. Verified by
+#: running the recipe against a live quickstart: the dbt source emits the models
+#: under the `dbt` platform, with sibling `duckdb` URNs for the physical
+#: relations. `ci/diff/dbt.py` produces the `dbt` form, so that is what the
+#: seeded governance metadata has to hang off, or it would decorate entities the
+#: analysis never looks at.
+DEMO_PLATFORM: Final[str] = "dbt"
+DEMO_NAMESPACE: Final[str] = "blast_radius_demo.main"
+DEMO_ENV: Final[str] = "PROD"
+
+#: The window the severity engine reads, and the counts the fixtures describe.
+USAGE_WINDOW_DAYS: Final[int] = 30
+USAGE_COUNTS: Final[dict[str, int]] = {
+    "dim_customers": 1450,
+    "stg_customers": 340,
+    "customer_ltv": 210,
+    "mart_exec_summary": 95,
+}
+
+#: Ownership for the demo catalog, matching the cast in the golden fixtures.
+#: `sam.data` owns `dim_customers` because fixture 02 notifies exactly them for
+#: the removal there; the rest follow the same shape.
+DEMO_OWNERS: Final[dict[str, tuple[tuple[str, str, str], ...]]] = {
+    "dim_customers": (
+        ("corpuser", "sam.data", "TECHNICAL_OWNER"),
+        ("corpGroup", "finance-analytics", "BUSINESS_OWNER"),
+    ),
+    "stg_customers": (
+        ("corpuser", "dana.eng", "TECHNICAL_OWNER"),
+        ("corpGroup", "growth-team", "BUSINESS_OWNER"),
+    ),
+    "stg_orders": (
+        ("corpuser", "dana.eng", "TECHNICAL_OWNER"),
+        ("corpGroup", "crm-analytics", "BUSINESS_OWNER"),
+    ),
+    "customer_ltv": (("corpGroup", "ml-platform", "PRODUCER"),),
+    "mart_exec_summary": (("corpGroup", "finance-analytics", "BUSINESS_OWNER"),),
+}
 
 #: dbt takes a while on a cold DuckDB, and a hung build should say so rather
 #: than look like a slow one.
 _DBT_TIMEOUT_SECONDS: Final[int] = 300
+
+#: Ingestion talks to GMS over the network and can wedge behind a container that
+#: is up but not yet answering. A hung ingest should say so rather than look
+#: like a slow one.
+_INGEST_TIMEOUT_SECONDS: Final[int] = 600
 
 #: Byte-identical to contracts/fixtures/03_adversarial_description/change_set.json.
 #: Its content-addressed id is a hash of exactly these bytes: a stray trailing
@@ -90,21 +144,107 @@ def _dbt(*args: str) -> None:
         raise SeedError(msg) from exc
 
 
+def _gms_url() -> str:
+    """Where GMS is, the same default `quickstart.sh` prints."""
+    return os.environ.get("DATAHUB_GMS_URL", "http://localhost:8080")
+
+
+def _graph() -> DataHubGraph:
+    """A client for the local quickstart, or a message saying what to start.
+
+    The SDK is an optional extra (`acryl-datahub`), so the import is local: a
+    developer running the unit tests without it should not be stopped from
+    importing this module.
+    """
+    try:
+        from datahub.ingestion.graph.client import DatahubClientConfig, DataHubGraph
+    except ImportError as exc:
+        msg = (
+            "the DataHub SDK is not installed.\n"
+            "       Install the extra: uv sync --all-extras --group dev"
+        )
+        raise SeedError(msg) from exc
+
+    token = os.environ.get("DATAHUB_GMS_TOKEN") or None
+    graph = DataHubGraph(DatahubClientConfig(server=_gms_url(), token=token))
+    try:
+        graph.test_connection()
+    except Exception as exc:  # the SDK raises several unrelated types here
+        msg = (
+            f"cannot reach DataHub GMS at {_gms_url()}: {exc}\n"
+            "       Start it: ./env/quickstart.sh up"
+        )
+        raise SeedError(msg) from exc
+    return graph
+
+
+def _dataset_urn(model: str) -> str:
+    """The URN the dbt ingestion actually produces for one demo model."""
+    from datahub.emitter.mce_builder import make_dataset_urn
+
+    return make_dataset_urn(DEMO_PLATFORM, f"{DEMO_NAMESPACE}.{model}", DEMO_ENV)
+
+
+def _field_urn(model: str, column: str) -> str:
+    """The schema-field URN for one column of one demo model."""
+    from datahub.emitter.mce_builder import make_schema_field_urn
+
+    return make_schema_field_urn(_dataset_urn(model), column)
+
+
+def _stable_id(*parts: str) -> str:
+    """A deterministic id, so re-running overwrites instead of duplicating.
+
+    Assertion and contract URNs are opaque strings. Deriving them from what they
+    describe is what makes rule 3 of this directory — seeding is idempotent —
+    true rather than merely intended.
+    """
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:32]
+
+
+def _emit(graph: DataHubGraph, urn: str, aspect: Any) -> None:
+    """Write one aspect, keyed by URN so a second run overwrites."""
+    from datahub.emitter.mcp import MetadataChangeProposalWrapper
+
+    graph.emit(MetadataChangeProposalWrapper(entityUrn=urn, aspect=aspect))
+
+
 def run_dbt() -> None:
     """Build the demo project so it has real relations and a real manifest.
 
-    `dbt seed` then `dbt run` against the DuckDB target in
-    `env/dbt_project/profiles.yml`, then `dbt docs generate` — the last one
-    because it writes `catalog.json`, and the ingestion recipe needs the catalog
-    to emit column types. Without it the dbt source degrades to table-level
-    lineage and the demo demonstrates nothing this project claims.
+    `dbt build` rather than `seed` then `run` then `test`, because it produces
+    one `run_results.json` describing both the models and their tests. That
+    single file is what lets the ingestion emit test results *and* column-level
+    lineage; a `run_results.json` containing only tests makes the dbt source
+    skip SQL parsing for the models, and column-level lineage — the property
+    this whole project rests on — silently disappears. Measured, not assumed:
+    with a test-only run_results the source reports `sql_parser_successes: 0`.
+
+    `dbt docs generate` runs after, because it writes `catalog.json` and the
+    recipe needs the catalog to emit column types. It also overwrites
+    `run_results.json` with a docs run, which the dbt source discards — so the
+    build's copy is preserved first, and the recipe reads the copy.
 
     Idempotent: every dbt command here rebuilds in place. Running it twice
     produces the same warehouse, not two of anything.
     """
-    _dbt("seed", "--full-refresh")
-    _dbt("run")
+    _dbt("build", "--full-refresh")
+    _preserve_run_results()
     _dbt("docs", "generate")
+
+
+def _preserve_run_results() -> None:
+    """Keep the build's `run_results.json` from being overwritten by docs.
+
+    `dbt docs generate` rewrites `run_results.json` in place, and the dbt source
+    ignores a docs run. Copying it aside is what keeps the test results the
+    build just produced.
+    """
+    produced = PROJECT_DIR / "target" / "run_results.json"
+    if not produced.is_file():
+        msg = f"dbt build produced no run results at {produced}"
+        raise SeedError(msg)
+    shutil.copyfile(produced, PROJECT_DIR / "target" / RUN_RESULTS_COPY)
 
 
 def ingest_metadata() -> None:
@@ -115,11 +255,63 @@ def ingest_metadata() -> None:
     fail loudly if it did not, because a demo without column-level lineage
     demonstrates nothing this project claims.
     """
-    raise StubNotImplementedError(
-        f"{_T}.ingest_metadata",
-        OWNER_B,
-        "run the ingestion recipes; assert fine-grained lineage was actually emitted",
-    )
+    if shutil.which("datahub") is None:
+        msg = (
+            "the DataHub CLI is not installed or not on PATH.\n"
+            "       Install it with the dbt source's dependencies:\n"
+            '       uv tool install "acryl-datahub[dbt]"'
+        )
+        raise SeedError(msg)
+    if not (PROJECT_DIR / "target" / "manifest.json").is_file():
+        msg = (
+            "no dbt manifest to ingest.\n"
+            "       Build the project first: uv run python env/seed_demo.py"
+        )
+        raise SeedError(msg)
+
+    try:
+        subprocess.run(
+            ["datahub", "ingest", "-c", str(DBT_RECIPE)],
+            check=True,
+            cwd=REPO_ROOT,
+            timeout=_INGEST_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        msg = f"datahub ingest timed out after {_INGEST_TIMEOUT_SECONDS}s"
+        raise SeedError(msg) from exc
+    except subprocess.CalledProcessError as exc:
+        msg = f"datahub ingest failed with exit code {exc.returncode}"
+        raise SeedError(msg) from exc
+
+    _assert_fine_grained_lineage()
+
+
+def _assert_fine_grained_lineage() -> None:
+    """Fail unless column-level lineage really landed in DataHub.
+
+    The recipe asks for it, but a recipe key that a newer `acryl-datahub` has
+    renamed is accepted silently and simply does nothing. That failure mode
+    produces a catalog that looks populated and a demo that proves nothing, so
+    it is checked rather than trusted.
+    """
+    from datahub.metadata.schema_classes import UpstreamLineageClass
+
+    graph = _graph()
+    checked = ("customer_ltv", "dim_customers", "mart_exec_summary")
+    without: list[str] = []
+    for model in checked:
+        aspect = graph.get_aspect(entity_urn=_dataset_urn(model), aspect_type=UpstreamLineageClass)
+        if aspect is None or not aspect.fineGrainedLineages:
+            without.append(model)
+
+    if without:
+        msg = (
+            "ingestion produced no column-level lineage for: " + ", ".join(without) + ".\n"
+            "       The demo depends on it. Check that `include_column_lineage: true`\n"
+            f"       is still a valid key in {DBT_RECIPE}, and that\n"
+            "       env/dbt_project/target/catalog.json exists (dbt docs generate)."
+        )
+        raise SeedError(msg)
 
 
 def seed_ownership_and_governance() -> None:
@@ -135,11 +327,80 @@ def seed_ownership_and_governance() -> None:
 
     Idempotent: emit by URN so a second run overwrites rather than duplicates.
     """
-    raise StubNotImplementedError(
-        f"{_T}.seed_ownership_and_governance",
-        OWNER_B,
-        "emit owners, assertions and a data contract matching the golden fixtures",
+    from datahub.emitter.mce_builder import (
+        make_assertion_urn,
+        make_group_urn,
+        make_user_urn,
     )
+    from datahub.metadata.schema_classes import (
+        AssertionInfoClass,
+        AssertionStdOperatorClass,
+        AssertionTypeClass,
+        DataContractPropertiesClass,
+        DataContractStateClass,
+        DataContractStatusClass,
+        DataQualityContractClass,
+        DatasetAssertionInfoClass,
+        DatasetAssertionScopeClass,
+        OwnerClass,
+        OwnershipClass,
+        OwnershipTypeClass,
+    )
+
+    graph = _graph()
+
+    for model, owners in DEMO_OWNERS.items():
+        entries = [
+            OwnerClass(
+                owner=(make_user_urn(name) if kind == "corpuser" else make_group_urn(name)),
+                type=getattr(OwnershipTypeClass, ownership_type),
+            )
+            for kind, name, ownership_type in owners
+        ]
+        _emit(graph, _dataset_urn(model), OwnershipClass(owners=entries, lastModified=None))
+
+    # Two FIELD assertions. Both exist so that the severity engine's
+    # assertion_presence factor has something real to read, and so the removal
+    # in fixture 02 has the covering assertion that fixture describes.
+    assertions = (
+        (
+            "dim_customers",
+            "customer_lifetime_value",
+            AssertionStdOperatorClass.GREATER_THAN_OR_EQUAL_TO,
+        ),
+        ("stg_customers", "signup_channel", AssertionStdOperatorClass.NOT_NULL),
+    )
+    assertion_urns: dict[str, str] = {}
+    for model, column, operator in assertions:
+        urn = make_assertion_urn(_stable_id("assertion", model, column))
+        assertion_urns[model] = urn
+        _emit(
+            graph,
+            urn,
+            AssertionInfoClass(
+                type=AssertionTypeClass.DATASET,
+                datasetAssertion=DatasetAssertionInfoClass(
+                    dataset=_dataset_urn(model),
+                    scope=DatasetAssertionScopeClass.DATASET_COLUMN,
+                    operator=operator,
+                    fields=[_field_urn(model, column)],
+                ),
+            ),
+        )
+
+    # An ACTIVE data contract over dim_customers, referencing the assertion on
+    # the column fixture 02 removes. contract_presence is the second heaviest
+    # factor in sev-v1; without this the demo cannot exercise it.
+    contract_urn = f"urn:li:dataContract:{_stable_id('contract', 'dim_customers_v2')}"
+    _emit(
+        graph,
+        contract_urn,
+        DataContractPropertiesClass(
+            entity=_dataset_urn("dim_customers"),
+            dataQuality=[DataQualityContractClass(assertion=assertion_urns["dim_customers"])],
+        ),
+    )
+    _emit(graph, contract_urn, DataContractStatusClass(state=DataContractStateClass.ACTIVE))
 
 
 def seed_query_usage() -> None:
@@ -151,9 +412,69 @@ def seed_query_usage() -> None:
     understates severity — which would be an honest report of a thin catalog,
     but a poor demonstration.
     """
-    raise StubNotImplementedError(
-        f"{_T}.seed_query_usage", OWNER_B, "emit datasetUsageStatistics over a 30-day window"
+    from datahub.emitter.mce_builder import make_user_urn
+    from datahub.metadata.schema_classes import (
+        CalendarIntervalClass,
+        DatasetFieldUsageCountsClass,
+        DatasetUsageStatisticsClass,
+        DatasetUserUsageCountsClass,
+        TimeWindowSizeClass,
     )
+
+    graph = _graph()
+    day = TimeWindowSizeClass(unit=CalendarIntervalClass.DAY, multiple=1)
+    midnight = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    for model, total in USAGE_COUNTS.items():
+        per_day, remainder = divmod(total, USAGE_WINDOW_DAYS)
+        for offset in range(USAGE_WINDOW_DAYS):
+            # The remainder lands on the most recent days rather than being
+            # dropped, so the emitted counts sum to exactly `total`.
+            count = per_day + (1 if offset < remainder else 0)
+            bucket = midnight - timedelta(days=offset)
+            _emit(
+                graph,
+                _dataset_urn(model),
+                DatasetUsageStatisticsClass(
+                    timestampMillis=int(bucket.timestamp() * 1000),
+                    eventGranularity=day,
+                    uniqueUserCount=min(count, len(_USAGE_USERS)),
+                    totalSqlQueries=count,
+                    userCounts=[
+                        DatasetUserUsageCountsClass(user=make_user_urn(user), count=share)
+                        for user, share in _split_across_users(count)
+                    ],
+                    fieldCounts=[
+                        DatasetFieldUsageCountsClass(fieldPath=field, count=count)
+                        for field in _USAGE_FIELDS.get(model, ())
+                    ],
+                ),
+            )
+
+
+#: The handful of people the demo catalog shows as querying it. Real enough to
+#: make `distinct_user_count` meaningful, small enough to stay readable.
+_USAGE_USERS: Final[tuple[str, ...]] = ("sam.data", "dana.eng", "priya.analyst", "tom.finance")
+
+#: Columns whose usage matters, because a change to one of them is what the
+#: fixtures describe. Usage is per column, so the severity engine can tell a
+#: heavily read column from a quiet one in the same table.
+_USAGE_FIELDS: Final[dict[str, tuple[str, ...]]] = {
+    "dim_customers": ("customer_lifetime_value", "email", "signup_channel"),
+    "stg_customers": ("email", "signup_channel", "customer_id"),
+    "customer_ltv": ("ltv_usd", "customer_email", "acquisition_channel"),
+    "mart_exec_summary": ("total_ltv",),
+}
+
+
+def _split_across_users(count: int) -> list[tuple[str, int]]:
+    """Spread one day's queries over the demo users, losing none to rounding."""
+    per_user, remainder = divmod(count, len(_USAGE_USERS))
+    shares = [
+        (user, per_user + (1 if index < remainder else 0))
+        for index, user in enumerate(_USAGE_USERS)
+    ]
+    return [(user, share) for user, share in shares if share > 0]
 
 
 def adversarial_meta_mapping() -> dict[str, str]:
@@ -210,6 +531,14 @@ def plant_adversarial_description() -> None:
 
 def main() -> int:
     """Run the whole seeding sequence."""
+    # The progress marks below are not ASCII, and a Windows console falls back
+    # to a code page that cannot encode them the moment output is redirected to
+    # a file or a pipe — which is every CI run, and how this script's own exit
+    # code was first observed to be 1 on a run where all five steps passed.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
     steps = (
         ("build the dbt project", run_dbt),
         ("ingest metadata into DataHub", ingest_metadata),

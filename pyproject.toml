@@ -41,6 +41,12 @@ datahub = ["acryl-datahub>=0.15"]
 # bytes, so a hand-rolled reader that mishandles a folded scalar would produce an
 # id that no longer matches its own content.
 ci = ["sqlglot>=25.0", "pyyaml>=6.0.1"]
+# OWNER B: the demo environment (env/). `seed_demo.py` ingests the demo dbt
+# project by running the DataHub CLI, the way it runs dbt itself — and the CLI's
+# dbt source refuses to register without its own dependencies. Kept separate
+# from the `datahub` extra above so that OWNER A's SDK access path stays as
+# small as it is: nothing in core/ needs the dbt source.
+env = ["acryl-datahub[dbt]>=0.15"]
 
 [project.urls]
 Homepage = "https://github.com/etka/blast-radius"

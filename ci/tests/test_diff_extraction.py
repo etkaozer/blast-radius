@@ -179,7 +179,31 @@ def test_ids_are_sequential_in_projection_order() -> None:
 # --------------------------------------------------------------------------
 
 
-def test_without_a_manifest_the_urn_is_on_the_dbt_platform() -> None:
+@pytest.fixture
+def unbuilt_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A dbt project that has never been compiled, and is the one discovery finds.
+
+    These tests used to run against the repository's own `env/dbt_project`,
+    which had no `target/` only because nobody had built it. Once
+    `env/seed_demo.py` runs — which the README tells every developer to do —
+    a manifest exists and the "without a manifest" case silently stops being
+    tested. The state under test now belongs to the test.
+    """
+    project = tmp_path / "env" / "dbt_project"
+    (project / "models" / "staging").mkdir(parents=True)
+    (project / "dbt_project.yml").write_text(
+        'name: demo_project\nversion: "1.0.0"\nconfig-version: 2\n'
+        'profile: demo_project\nmodel-paths: ["models"]\n',
+        encoding="utf-8",
+    )
+    (project / "models" / "staging" / "stg_customers.sql").write_text(
+        sql("id", "email"), encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    return project
+
+
+def test_without_a_manifest_the_urn_is_on_the_dbt_platform(unbuilt_project: Path) -> None:
     """A guess at the warehouse platform would produce a URN that silently
     matches nothing in DataHub. dbt is a real platform, so say dbt."""
     (change,) = diff_columns(
@@ -189,10 +213,11 @@ def test_without_a_manifest_the_urn_is_on_the_dbt_platform() -> None:
     assert change.dataset_name.endswith(".staging.stg_customers")
 
 
-def test_a_project_that_cannot_be_found_raises() -> None:
+def test_a_project_that_cannot_be_found_raises(unbuilt_project: Path) -> None:
     project = DbtProject.discover(MODEL)
     assert (project.root / "dbt_project.yml").is_file()
-    assert project.manifest_path is None  # nothing compiled in the repository
+    assert project.root == unbuilt_project
+    assert project.manifest_path is None  # nothing compiled in this project
 
 
 # --------------------------------------------------------------------------

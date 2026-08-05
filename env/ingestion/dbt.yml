@@ -8,19 +8,29 @@
 # grounded in and the demo demonstrates nothing. env/seed_demo.py asserts that
 # fine-grained lineage was actually emitted rather than assuming it.
 #
-# TODO(verify): confirm the option names below against the installed
-# acryl-datahub version before the demo. Recipe keys have moved between minor
-# releases, and a silently ignored key here is the failure mode that would cost
-# the most on demo day.
+# Verified against acryl-datahub 1.6.0.17 on a live quickstart: every key below
+# is accepted and `fineGrainedLineages` is emitted for all five models.
+# env/seed_demo.py re-checks the lineage after every ingest rather than trusting
+# this comment, because a key a later release renames is ignored silently.
 
 source:
   type: dbt
   config:
     manifest_path: env/dbt_project/target/manifest.json
     catalog_path: env/dbt_project/target/catalog.json
+    # The build's run results, parked here by env/seed_demo.py because
+    # `dbt docs generate` overwrites run_results.json with a docs run that this
+    # source discards. Keep the name in step with RUN_RESULTS_COPY there.
     run_results_paths:
-      - env/dbt_project/target/run_results.json
+      - env/dbt_project/target/run_results.build.json
     target_platform: duckdb
+
+    # Pinned rather than left to the default, which the source warns is due to
+    # change. URNs are the join key between everything this project does: the
+    # extractor builds them from the manifest, the engine looks them up, the
+    # seeded governance metadata hangs off them. A default that flips between
+    # releases would silently disconnect all three.
+    convert_urns_to_lowercase: false
 
     # Column-level lineage. Non-negotiable for this project.
     include_column_lineage: true
