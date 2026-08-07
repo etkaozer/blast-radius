@@ -57,7 +57,13 @@ AssertionType = Literal["FRESHNESS", "VOLUME", "FIELD", "SQL", "DATASET", "SCHEM
 AssertionResult = Literal["SUCCESS", "FAILURE", "ERROR", "INIT", "UNKNOWN"]
 ContractState = Literal["ACTIVE", "PENDING"]
 UsageSource = Literal["datahub_usage", "datahub_queries", "unavailable"]
-AccessPath = Literal["mcp", "sdk"]
+#: "mcp+sdk" is a composed run: MCP served every read it exposes, and the SDK
+#: served the two it does not. `mcp-server-datahub` has no data-contract tool at
+#: all, and its assertion tool is declared `min_version(cloud=...)` with no OSS
+#: minimum, so on an open-source DataHub neither `contract_presence` nor
+#: `assertion_presence` is answerable over MCP alone. Reporting "mcp" for such a
+#: run would misattribute two of the seven severity factors.
+AccessPath = Literal["mcp", "sdk", "mcp+sdk"]
 FixLanguage = Literal["sql", "yaml", "python", "markdown"]
 WritebackStatus = Literal[
     "detected", "acknowledged", "fix_proposed", "resolved", "dismissed", "expired"
@@ -419,9 +425,14 @@ class ChangeSetRef(_Model):
 
 
 class ImpactReport(_Model):
-    """The full output of the analysis. Consumed by ci/render and ci/publish."""
+    """The full output of the analysis. Consumed by ci/render and ci/publish.
 
-    schema_version: Literal["1.0.0"] = "1.0.0"
+    `schema_version` is 1.1.0 rather than 1.0.0 because `access_path` gained the
+    value "mcp+sdk". Adding an enum value is a breaking change for a consumer
+    that matches exhaustively, which `CONTRACT.md` records as requiring the bump.
+    """
+
+    schema_version: Literal["1.1.0"] = "1.1.0"
     generated_at: str
     tool: ToolRef
     change_set_ref: ChangeSetRef

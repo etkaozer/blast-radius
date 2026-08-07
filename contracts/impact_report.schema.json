@@ -7,7 +7,7 @@
   "additionalProperties": false,
   "required": ["schema_version", "generated_at", "tool", "change_set_ref", "column_impacts", "overall_severity"],
   "properties": {
-    "schema_version": { "const": "1.0.0" },
+    "schema_version": { "const": "1.1.0" },
     "generated_at": { "type": "string", "format": "date-time" },
     "tool": {
       "type": "object",
@@ -73,8 +73,8 @@
       "required": ["access_path", "queried_at"],
       "properties": {
         "access_path": {
-          "enum": ["mcp", "sdk"],
-          "description": "Which of the two supported access paths served this run."
+          "enum": ["mcp", "sdk", "mcp+sdk"],
+          "description": "Which access path served this run. 'mcp+sdk' means MCP served it except for the reads mcp-server-datahub does not expose on an open-source deployment - assertions and data contracts - which the SDK served; the degradations list names them."
         },
         "queried_at": { "type": "string", "format": "date-time" },
         "lineage_max_hops": { "type": "integer", "minimum": 1, "maximum": 10 },
