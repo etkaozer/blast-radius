@@ -4,9 +4,13 @@ Written for a judge who wants to verify a claim in under a minute, and kept
 honest: every gap is marked **TODO** rather than talked around. A scaffold that
 overstates itself is the same failure mode this project is about.
 
-**Status as of the current commit: the deterministic core is implemented and
-tested; everything that talks to DataHub, GitHub, dbt or Anthropic is a
-documented stub.** `uv run blast-radius stubs` prints the exact inventory.
+**Status as of the current commit: OWNER A has no stubs left.** The
+deterministic core, both DataHub access paths, all four write-back mutations and
+the `doctor` write round-trip are implemented and unit tested. What has *not*
+happened is an end-to-end run against a live DataHub — every DataHub call is
+written against the installed server's own type definitions and GraphQL
+documents, which is evidence about shapes and not evidence that it works.
+`uv run blast-radius stubs` prints the exact inventory.
 
 ---
 
@@ -14,15 +18,16 @@ documented stub.** `uv run blast-radius stubs` prints the exact inventory.
 
 | Claim | Where | Status |
 | --- | --- | --- |
-| Both supported access paths behind one interface | `core/datahub/base.py` (protocol), `mcp_client.py`, `sdk_client.py` | Interface done, calls **TODO** |
-| Column-level lineage, N-hop, with full paths | `core/datahub/base.py::get_lineage`, `contracts/impact_report.schema.json` `$defs.downstreamEntity.path` | Contract done, traversal **TODO** |
-| `get_lineage_paths_between` for "why is this dashboard affected" | `core/datahub/base.py` | **TODO** |
-| Real query usage, not an estimate | `$defs.queryUsage`, `core/severity/rules.py::normalize_query_usage` | Scoring done, read **TODO** |
+| Both supported access paths behind one interface | `core/datahub/base.py` (protocol), `mcp_client.py`, `sdk_client.py`, `hybrid.py` | Done; not run live |
+| Column-level lineage, N-hop, with full paths | `core/datahub/{mcp_client,sdk_client}.py::get_lineage` | Done; path reconstruction unit tested |
+| `get_lineage_paths_between` for "why is this dashboard affected" | both clients | Done; not run live |
+| Real query usage, not an estimate | `$defs.queryUsage`, `core/severity/rules.py::normalize_query_usage` | Done, and the two usage sources are kept distinct |
 | Assertions and data contracts as severity factors | `core/impact/rules.py`, `core/severity/rules.py` | Done |
-| Ownership resolution for notification | `$defs.owner`, `core/datahub/base.py::get_owners` | Contract done, read **TODO** |
-| Write-back as a structured property | `contracts/writeback_record.schema.json`, `core/writeback/record.py` | Record projection done and tested, mutation **TODO** |
+| Ownership resolution for notification | `$defs.owner`, both clients | Done |
+| Write-back as a structured property | `core/writeback/writer.py`, `uv run blast-radius writeback` | Done on both paths; not run live |
 | Graceful degradation across DataHub deployments | `core/writeback/capabilities.py`, `core/writeback/writer.py::build_writer` | Done and tested |
-| `doctor` verifies the write path before anyone depends on it | `core/writeback/doctor.py`, `uv run blast-radius doctor` | Local checks run; DataHub probes **TODO** |
+| `doctor` verifies the write path before anyone depends on it | `core/writeback/doctor.py`, `uv run blast-radius doctor` | Done — writes to a scratch URN, reads back, compares, cleans up |
+| Honest about what MCP cannot do | `core/datahub/hybrid.py`, `core/datahub/mcp_client.py` | `mcp-server-datahub` has no data-contract tool and no OSS assertion tool; the composed reader says so rather than scoring zero |
 
 The strongest single claim: DataHub is not decoration here. Every one of the
 seven severity factors is a graph fact, and four of them come from DataHub

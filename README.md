@@ -192,14 +192,32 @@ Honest status, because a judge should not have to find this out by running it.
 - the test proving the adversarial fixture scores identically to its clean twin
 - configuration, the write-path fallback decision, the bounded retry loop, the
   write-back record projection, and the stub inventory
+- both DataHub access paths — the Python SDK, and MCP over a stdio session to
+  `mcp-server-datahub` — with the tool-payload mapping unit tested offline
+- all four write-back mutations on both paths, read-modify-write throughout, and
+  `blast-radius writeback` to drive them
 
-**Scaffolded, raising `NotImplementedError` with a documented contract:**
-
-- everything that talks to DataHub, GitHub, dbt or Anthropic
+**Not yet verified against a running DataHub.** Every DataHub call is written
+against the installed server's own type definitions and GraphQL documents, which
+is the best available offline evidence and is not the same as evidence.
+`blast-radius doctor` is the command that turns it into a real answer, and its
+write round-trip genuinely writes, reads back, compares and cleans up.
 
 `uv run blast-radius stubs` prints the current inventory grouped by owner. There
 are no mock implementations anywhere in this repository: a stub raises, and the
 message names the module, the owner and the contract.
+
+### What MCP cannot do, and what we do about it
+
+`mcp-server-datahub` 0.6.0 has **no data-contract tool**, and its assertion tool
+is DataHub Cloud only. Those feed two of the seven severity factors, so a
+pure-MCP run on an open-source DataHub cannot produce a complete score.
+
+Rather than report a quietly lower number, `BLAST_RADIUS_DATAHUB_MODE=mcp`
+builds a composed reader: MCP serves lineage, schema, entities and ownership;
+the SDK serves contracts, assertions and query usage. It reports itself as
+`access_path: "mcp+sdk"` — never as `"mcp"` — because provenance that lies under
+composition is worse than no provenance.
 
 ## Limitations
 

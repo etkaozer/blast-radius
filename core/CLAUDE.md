@@ -12,6 +12,8 @@ DataHub write-back went out".
 | Package | Responsibility |
 | --- | --- |
 | `core/datahub/` | Reads over MCP (`mcp-server-datahub`) and the Python SDK (`acryl-datahub`), behind one protocol |
+| `core/datahub/mcp_session.py` | The async MCP stdio transport, confined so nothing above it is async |
+| `core/datahub/hybrid.py` | The composed reader; see "Two access paths, and why there are three" |
 | `core/impact/` | Column-level lineage traversal; collection of owners, assertions, contracts, usage |
 | `core/severity/` | Deterministic scoring. Pure functions, fully unit tested |
 | `core/untrusted/` | Envelope for free text entering prompts; heuristic detection for reporting |
@@ -74,10 +76,47 @@ have the model "suggest" a score, and the resulting object would still carry
    `Degradation` in the report. Never let "we could not measure it" look like
    "there is nothing there".
 4. **Both access paths must behave identically.** Any difference a caller can
-   observe between `McpDataHubReader` and `SdkDataHubReader` is a bug.
+   observe between `McpDataHubReader` and `SdkDataHubReader` is a bug — *except
+   where one of them provably cannot answer a read at all*, which is the case
+   documented below. That exception is narrow and each instance is named in
+   code; it is not a licence to let the two drift.
 5. **The clock is a parameter, not a call.** Pure functions take `detected_at`
    and `generated_at`; only `core/pipeline.py` and `core/cli.py` read the
    actual time.
+
+## Two access paths, and why there are three readers
+
+`mcp-server-datahub` 0.6.0 cannot serve two of the nine reads in
+`DataHubReader` on an open-source DataHub. This was established by reading the
+installed package — its registered tool list and the GraphQL documents in
+`gql/` — not by inference:
+
+- **data contracts**: no tool exists, and no `.gql` in the package mentions
+  contracts;
+- **assertions**: `get_dataset_assertions` is declared
+  `@min_version(cloud="0.3.16")` with no OSS minimum, which that decorator's own
+  docstring defines as "not available on OSS", and it is additionally hidden
+  unless the server is started with `DATA_QUALITY_TOOLS_ENABLED=true`.
+
+Those two reads feed `contract_presence` (12 points) and `assertion_presence`
+(4). So a bare MCP reader on an open-source catalog cannot produce two of the
+seven severity factors.
+
+`McpDataHubReader` therefore **raises `DataHubCapabilityError`** for both rather
+than returning an empty tuple. An empty tuple is a scored claim: it would zero
+the factor and read as "this dataset has no contract", which is a different
+statement from "this path cannot see contracts".
+
+`HybridDataHubReader` resolves it by serving those two — plus
+`get_dataset_queries`, because MCP's query tool reads catalogued Query entities
+rather than the `datasetUsageStatistics` aspect the factor is defined on — from
+the SDK, and reporting `access_path` as `"mcp+sdk"`. `build_reader` returns it
+for `BLAST_RADIUS_DATAHUB_MODE=mcp`. Lineage stays on MCP.
+
+That third `access_path` value is why `impact_report.schema.json` is at
+`schema_version` 1.1.0. **It is a `contracts/` change and needs OWNER B's
+approval**, because a renderer matching exhaustively on two values breaks on a
+third.
 
 ## Where to start
 
