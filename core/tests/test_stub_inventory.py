@@ -25,9 +25,55 @@ STUBS = find_stubs(ROOT)
 CODEOWNERS = parse_codeowners(ROOT / ".github" / "CODEOWNERS")
 
 
-def test_the_scanner_finds_stubs() -> None:
-    """A scanner that finds nothing would make every other test here vacuous."""
-    assert len(STUBS) >= 20
+def _sample_repo(root: Path) -> Path:
+    """Build a miniature two-owner repository with one stub per owner.
+
+    The scanner tests below run against this rather than against the real
+    repository. An assertion of the form `len(find_stubs(ROOT)) >= N` measures
+    how much work is left, not whether the scanner works, so it fails the day
+    the work is finished — which is precisely the day it should still pass.
+    """
+    (root / ".github").mkdir(parents=True)
+    (root / ".github" / "CODEOWNERS").write_text(
+        "*        @etka @teammate\n/core/   @etka\n/ci/     @teammate\n",
+        encoding="utf-8",
+    )
+    for package, module in (("core", "engine.py"), ("ci", "render.py")):
+        (root / package).mkdir()
+        (root / package / module).write_text(
+            '"""Sample module."""\n'
+            "\n"
+            "\n"
+            "def unfinished() -> None:\n"
+            '    """Contract: the thing this will do once written."""\n'
+            "    raise NotImplementedError\n"
+            "\n"
+            "\n"
+            "def finished() -> int:\n"
+            '    """Already implemented, and must not be counted."""\n'
+            "    return 1\n",
+            encoding="utf-8",
+        )
+    return root
+
+
+def test_the_scanner_finds_stubs(tmp_path: Path) -> None:
+    """A scanner that finds nothing would make every other test here vacuous.
+
+    Asserted against a controlled sample so the guarantee holds at any real
+    stub count, including zero.
+    """
+    found = find_stubs(_sample_repo(tmp_path))
+
+    assert [s.qualname for s in found] == ["unfinished", "unfinished"]
+    assert all(s.contract.startswith("Contract:") or "implemented" in s.contract for s in found)
+
+
+def test_the_scanner_ignores_implemented_functions(tmp_path: Path) -> None:
+    """The count must fall as work lands, or the inventory is decorative."""
+    found = find_stubs(_sample_repo(tmp_path))
+
+    assert "finished" not in {s.qualname for s in found}
 
 
 def test_every_stub_documents_its_contract() -> None:
@@ -42,11 +88,20 @@ def test_every_stub_has_an_owner() -> None:
     assert not unowned, f"stubs not covered by CODEOWNERS: {unowned}"
 
 
-def test_work_is_split_between_both_owners() -> None:
-    """If one owner has everything, the two-owner model is decorative."""
-    grouped = group_by_owner(STUBS)
-    assert any("etka" in label for label in grouped), "owner A has no stubs"
-    assert any("teammate" in label for label in grouped), "owner B has no stubs"
+def test_stubs_are_attributed_to_the_owner_who_must_write_them(tmp_path: Path) -> None:
+    """If the inventory cannot tell the two owners apart, the split is decorative.
+
+    This asserted that BOTH owners still had outstanding stubs, which stopped
+    being a property of the repository the moment one side finished. Running out
+    of work is the goal, not a regression. What has to keep holding is that a
+    stub is attributed to whoever CODEOWNERS says must write it — asserted here
+    against a sample that always contains one stub per owner.
+    """
+    grouped = group_by_owner(find_stubs(_sample_repo(tmp_path)))
+
+    assert sorted(grouped) == ["A (etka)", "B (teammate)"]
+    assert [s.file for s in grouped["A (etka)"]] == ["core/engine.py"]
+    assert [s.file for s in grouped["B (teammate)"]] == ["ci/render.py"]
 
 
 def test_codeowners_covers_every_source_directory() -> None:
