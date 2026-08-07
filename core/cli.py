@@ -1,10 +1,11 @@
 """`blast-radius` command line interface.
 
-Three commands:
+Four commands:
 
-* `analyze`  — run the pipeline over a change set and write an impact report
-* `doctor`   — verify the DataHub read and write paths before depending on them
-* `stubs`    — list what is still unimplemented, grouped by owner
+* `analyze`   — run the pipeline over a change set and write an impact report
+* `writeback` — publish a finished report into DataHub as structured metadata
+* `doctor`    — verify the DataHub read and write paths before depending on them
+* `stubs`     — list what is still unimplemented, grouped by owner
 
 Exit codes are meaningful because CI reads them:
 
@@ -19,17 +20,27 @@ Exit codes are meaningful because CI reads them:
 from __future__ import annotations
 
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 import click
 
-from contracts.loader import ContractViolation, dump
+from contracts.loader import ContractViolation, dump, load_impact_report
+from contracts.models import WritebackRecord
 from core.config import Settings
 from core.errors import BlastRadiusError
 from core.pipeline import STAGES, AnalyzeRequest, Progress, Stage, run_analysis
 from core.stubs import StubRef, find_stubs, group_by_owner
 from core.version import VERSION
+from core.writeback.capabilities import detect
 from core.writeback.doctor import exit_code_for, run_checks
+from core.writeback.record import build_record
+from core.writeback.writer import (
+    DataHubWriter,
+    build_writer,
+    record_property_value,
+    tag_urn_for,
+)
 
 EXIT_OK = 0
 EXIT_BAD_INPUT = 1
@@ -135,6 +146,119 @@ def analyze(
 
     click.echo()
     click.echo(f"✓ {report.overall_severity.level} ({report.overall_severity.score}) → {out_path}")
+
+
+@main.command(name="writeback")
+@click.option(
+    "--report",
+    "report_path",
+    required=True,
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="ImpactReport JSON produced by `analyze`.",
+)
+@click.option(
+    "--report-url", default=None, help="Where a human can read the full report (the PR comment)."
+)
+@click.option("--fix-branch", default=None, help="Branch carrying the generated fixes, if any.")
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Build and validate the record, print it, and write nothing.",
+)
+def writeback(
+    report_path: Path,
+    report_url: str | None,
+    fix_branch: str | None,
+    dry_run: bool,
+) -> None:
+    """Write a finished report back into DataHub as structured metadata.
+
+    A separate command rather than a flag on `analyze`, for two reasons. A
+    review must never fail because a mutation failed — the PR comment is the
+    product, and the write-back is a bonus that a read-only token legitimately
+    cannot perform. And publishing is a decision: running this is how a team
+    says "yes, put this in the catalog", which is not something an analysis
+    should do on their behalf.
+    """
+    try:
+        settings = Settings.from_env()
+        report = load_impact_report(report_path)
+    except ContractViolation as exc:
+        _err(f"✗ {exc}")
+        sys.exit(EXIT_BAD_INPUT)
+    except BlastRadiusError as exc:
+        _err(f"configuration error: {exc}")
+        sys.exit(EXIT_BAD_INPUT)
+
+    detected_at = datetime.now(tz=UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+    record = build_record(
+        report, detected_at=detected_at, report_url=report_url, fix_branch=fix_branch
+    )
+
+    click.echo(f"blast-radius {VERSION} · writeback")
+    click.echo(f"report: {report_path}")
+    click.echo(
+        f"finding: {report.overall_severity.level} ({report.overall_severity.score}) "
+        f"across {len(record.changed_columns)} column(s)"
+    )
+    click.echo()
+
+    if dry_run:
+        click.echo(record_property_value(record))
+        click.echo()
+        click.echo("✓ dry run: the record is valid and nothing was written")
+        return
+
+    capabilities = detect(
+        gms_url=settings.datahub_gms_url,
+        mcp_server_command=settings.mcp_server_command,
+        mutation_env_flag=settings.mutation_enabled,
+        token=settings.datahub_token,
+    )
+    writer = build_writer(
+        capabilities,
+        gms_url=settings.datahub_gms_url,
+        mcp_server_command=settings.mcp_server_command,
+        token=settings.datahub_token,
+    )
+    if writer is None:
+        _err(f"✗ no write path available: {capabilities.explain()}")
+        sys.exit(EXIT_DEGRADED)
+
+    click.echo(f"write path: {writer.access_path} — {capabilities.explain()}")
+    targets = sorted({column.dataset_urn for column in record.changed_columns})
+    failures = _write_record(writer, record, targets)
+
+    click.echo()
+    if failures:
+        for message in failures:
+            _err(f"✗ {message}")
+        sys.exit(EXIT_DEGRADED)
+    click.echo(f"✓ wrote the impact record to {len(targets)} dataset(s) in DataHub")
+
+
+def _write_record(writer: DataHubWriter, record: WritebackRecord, targets: list[str]) -> list[str]:
+    """Perform the writes, returning a message per failure.
+
+    The structured property is the one write that must succeed; the tag is
+    cosmetic. They are reported separately so that a catalog which rejects tag
+    creation still gets the machine-readable record, which is the part the next
+    agent reads.
+    """
+    failures: list[str] = []
+    for urn in targets:
+        try:
+            writer.set_structured_property(urn, record)
+            click.echo(f"  · impactRecord → {urn}")
+        except BlastRadiusError as exc:
+            failures.append(f"{urn}: {exc}")
+            continue
+        try:
+            writer.add_tag(urn, tag_urn_for(record.severity.level))
+            click.echo(f"  · tag blast-radius-{record.severity.level} → {urn}")
+        except BlastRadiusError as exc:
+            click.echo(f"  ! tag skipped for {urn}: {exc}")
+    return failures
 
 
 def _report_halt(progress: Progress, exc: NotImplementedError) -> None:

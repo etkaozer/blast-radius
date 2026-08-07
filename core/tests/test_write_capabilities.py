@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 
+from core.writeback import capabilities
 from core.writeback.capabilities import (
     MIN_MCP_SERVER_VERSION,
     detect,
@@ -168,12 +169,32 @@ def test_an_old_server_does_not_enable_mutations_even_with_the_flag(
     assert any("older than" in note for note in capabilities.notes)
 
 
-def test_the_sdk_path_needs_a_token(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_sdk_path_needs_a_reachable_gms(monkeypatch: pytest.MonkeyPatch) -> None:
     """acryl-datahub installed is not the same as acryl-datahub usable."""
     monkeypatch.setenv("PATH", "")
     without = detect("http://127.0.0.1:1", "mcp-server-datahub", False, token=None)
     assert without.sdk_available is False
-    assert any("TOKEN" in note for note in without.notes)
+    assert any("unreachable" in note for note in without.notes)
+
+
+def test_a_missing_token_does_not_remove_the_write_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An open-source quickstart issues no token and still accepts writes.
+
+    Requiring one reported "no write path available" on exactly the deployment
+    the demo runs on, which turned a working write-back into a silent
+    degradation. The absence is still reported, as a note rather than as a
+    missing capability.
+    """
+    monkeypatch.setenv("PATH", "")
+    monkeypatch.setattr(capabilities, "probe_gms", lambda _url: (True, None))
+
+    without = detect("http://localhost:8080", "mcp-server-datahub", False, token=None)
+
+    assert without.sdk_available is True
+    assert without.preferred_path == "sdk"
+    assert any("DATAHUB_GMS_TOKEN is not set" in note for note in without.notes)
 
 
 def test_proposals_are_never_inferred_from_the_url(monkeypatch: pytest.MonkeyPatch) -> None:
