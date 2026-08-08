@@ -46,13 +46,20 @@ DBT_RECIPE = RECIPE_DIR / "dbt.yml"
 #: overwrite them. Must match `run_results_paths` in the recipe.
 RUN_RESULTS_COPY: Final[str] = "run_results.build.json"
 
-#: The demo warehouse as DataHub actually names it after ingestion. Verified by
-#: running the recipe against a live quickstart: the dbt source emits the models
-#: under the `dbt` platform, with sibling `duckdb` URNs for the physical
-#: relations. `ci/diff/dbt.py` produces the `dbt` form, so that is what the
-#: seeded governance metadata has to hang off, or it would decorate entities the
-#: analysis never looks at.
-DEMO_PLATFORM: Final[str] = "dbt"
+#: The demo warehouse as DataHub actually names it after ingestion. The dbt
+#: source emits each model twice: once under the `dbt` platform, and once as a
+#: sibling `duckdb` URN for the physical relation. Governance metadata has to
+#: hang off whichever of the two the analysis actually reads, or it decorates
+#: entities nobody looks at.
+#:
+#: That is the `duckdb` form. `ci/diff/dbt.py` treats `target/manifest.json` as
+#: authoritative and builds the URN from `metadata.adapter_type`, which is
+#: duckdb; the `dbt` platform is only the fallback for an uncompiled project.
+#: This constant said `dbt` until a live run showed the change set carrying a
+#: duckdb URN while the assertion, the contract and the usage statistics all
+#: sat on the sibling -- three severity factors scoring zero against a catalog
+#: that had the answer.
+DEMO_PLATFORM: Final[str] = "duckdb"
 DEMO_NAMESPACE: Final[str] = "blast_radius_demo.main"
 DEMO_ENV: Final[str] = "PROD"
 

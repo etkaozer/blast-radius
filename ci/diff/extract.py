@@ -111,6 +111,11 @@ def neutralise_jinja(sql: str) -> str:
     in a `from`, a value in a projection — and becomes one, so that the
     surrounding SQL still parses and the projection keeps its shape.
     """
+    # A model authored on Windows can start with a UTF-8 BOM. sqlglot does not
+    # skip it, and the parse fails at the first statement with a position that
+    # points at valid SQL -- which reads as a broken model rather than as an
+    # encoding artefact. Strip it here, where every path into the parser passes.
+    sql = sql.lstrip("\ufeff")
     sql = _JINJA_COMMENT.sub("", sql)
     sql = _JINJA_STATEMENT.sub("", sql)
     sql = _JINJA_CONFIG.sub("", sql)

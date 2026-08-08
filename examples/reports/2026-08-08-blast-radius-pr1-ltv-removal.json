@@ -1,0 +1,320 @@
+{
+  "schema_version": "1.1.0",
+  "generated_at": "2026-08-08T06:40:41Z",
+  "tool": {
+    "name": "blast-radius",
+    "version": "0.1.0",
+    "severity_rule_version": "sev-v1"
+  },
+  "change_set_ref": {
+    "pull_request": {
+      "number": 1,
+      "repo": "Varshavia/blast-radius",
+      "head_sha": "0e114bc7e678322cad0704210ff8f2e816cfc794",
+      "base_sha": "1ac17ee7a9edb278d1a55171f6a622dbc4ef53a6"
+    },
+    "change_set_sha256": "e76bf145f6321e9cf49e9842f8fe35a1b39998fa7b7289d36132d0d4ba7cb143"
+  },
+  "column_impacts": [
+    {
+      "change_id": "cc-1",
+      "change": {
+        "dbt_model": "dim_customers",
+        "dataset_urn": "urn:li:dataset:(urn:li:dataPlatform:duckdb,blast_radius_demo.main.dim_customers,PROD)",
+        "dataset_name": "blast_radius_demo.main.dim_customers",
+        "column": "customer_lifetime_value",
+        "change_kind": "removed"
+      },
+      "query_usage": {
+        "window_days": 30,
+        "query_count": 0,
+        "source": "unavailable"
+      },
+      "severity": {
+        "score": 61.0,
+        "level": "high",
+        "rule_version": "sev-v1",
+        "factors": [
+          {
+            "name": "change_kind_risk",
+            "raw_value": "removed",
+            "normalized": 1.0,
+            "weight": 30.0,
+            "contribution": 30.0,
+            "description": "A removal cannot be absorbed by an alias; every reader must change."
+          },
+          {
+            "name": "downstream_reach",
+            "raw_value": 3,
+            "normalized": 0.6,
+            "weight": 20.0,
+            "contribution": 12.0,
+            "description": "3 distinct entities reached through column-level lineage."
+          },
+          {
+            "name": "hop_proximity",
+            "raw_value": 1,
+            "normalized": 1.0,
+            "weight": 15.0,
+            "contribution": 15.0,
+            "description": "Nearest consumer is 1 hop(s) away, so breakage is immediate rather than buffered."
+          },
+          {
+            "name": "query_usage",
+            "raw_value": null,
+            "normalized": 0.0,
+            "weight": 15.0,
+            "contribution": 0.0,
+            "description": "Query usage was UNAVAILABLE in DataHub, not zero. It scored zero because nothing was measured, not because the column is unused, so the score this factor belongs to is a LOWER BOUND: up to 15.0 further points could not be assessed."
+          },
+          {
+            "name": "contract_presence",
+            "raw_value": false,
+            "normalized": 0.0,
+            "weight": 12.0,
+            "contribution": 0.0,
+            "description": "No data contract references the changed column."
+          },
+          {
+            "name": "assertion_presence",
+            "raw_value": true,
+            "normalized": 1.0,
+            "weight": 4.0,
+            "contribution": 4.0,
+            "description": "An assertion references the changed column."
+          },
+          {
+            "name": "critical_consumer",
+            "raw_value": false,
+            "normalized": 0.0,
+            "weight": 4.0,
+            "contribution": 0.0,
+            "description": "No dashboard, chart or ML entity consumes this column."
+          }
+        ],
+        "computed_by": "deterministic",
+        "inputs_digest": "e4e928cdf9cf0826cd080e02315d9adb6d485bba3e33858fe1053294cf291091"
+      },
+      "downstream": [
+        {
+          "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,blast_radius_demo.main.customer_ltv,PROD)",
+          "entity_type": "dataset",
+          "name": "blast_radius_demo.main.customer_ltv",
+          "hop_distance": 1,
+          "path": [
+            {
+              "from_urn": "urn:li:dataset:(urn:li:dataPlatform:duckdb,blast_radius_demo.main.dim_customers,PROD)",
+              "to_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,blast_radius_demo.main.customer_ltv,PROD)",
+              "transformation": {
+                "type": "unknown"
+              },
+              "from_column": "customer_lifetime_value",
+              "to_column": "ltv_usd"
+            }
+          ],
+          "platform": "dbt",
+          "via_column": "ltv_usd"
+        },
+        {
+          "urn": "urn:li:dataset:(urn:li:dataPlatform:duckdb,blast_radius_demo.main.customer_ltv,PROD)",
+          "entity_type": "dataset",
+          "name": "blast_radius_demo.main.customer_ltv",
+          "hop_distance": 2,
+          "path": [
+            {
+              "from_urn": "urn:li:dataset:(urn:li:dataPlatform:duckdb,blast_radius_demo.main.dim_customers,PROD)",
+              "to_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,blast_radius_demo.main.customer_ltv,PROD)",
+              "transformation": {
+                "type": "unknown"
+              },
+              "from_column": "customer_lifetime_value",
+              "to_column": "ltv_usd"
+            },
+            {
+              "from_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,blast_radius_demo.main.customer_ltv,PROD)",
+              "to_urn": "urn:li:dataset:(urn:li:dataPlatform:duckdb,blast_radius_demo.main.customer_ltv,PROD)",
+              "transformation": {
+                "type": "unknown",
+                "expression": "NONE"
+              },
+              "from_column": "ltv_usd",
+              "to_column": "ltv_usd"
+            }
+          ],
+          "platform": "duckdb",
+          "via_column": "ltv_usd"
+        },
+        {
+          "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,blast_radius_demo.main.mart_exec_summary,PROD)",
+          "entity_type": "dataset",
+          "name": "blast_radius_demo.main.mart_exec_summary",
+          "hop_distance": 3,
+          "path": [
+            {
+              "from_urn": "urn:li:dataset:(urn:li:dataPlatform:duckdb,blast_radius_demo.main.dim_customers,PROD)",
+              "to_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,blast_radius_demo.main.customer_ltv,PROD)",
+              "transformation": {
+                "type": "unknown"
+              },
+              "from_column": "customer_lifetime_value",
+              "to_column": "ltv_usd"
+            },
+            {
+              "from_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,blast_radius_demo.main.customer_ltv,PROD)",
+              "to_urn": "urn:li:dataset:(urn:li:dataPlatform:duckdb,blast_radius_demo.main.customer_ltv,PROD)",
+              "transformation": {
+                "type": "unknown",
+                "expression": "NONE"
+              },
+              "from_column": "ltv_usd",
+              "to_column": "ltv_usd"
+            },
+            {
+              "from_urn": "urn:li:dataset:(urn:li:dataPlatform:duckdb,blast_radius_demo.main.customer_ltv,PROD)",
+              "to_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,blast_radius_demo.main.mart_exec_summary,PROD)",
+              "transformation": {
+                "type": "unknown"
+              },
+              "from_column": "ltv_usd",
+              "to_column": "total_ltv"
+            }
+          ],
+          "platform": "dbt",
+          "via_column": "total_ltv"
+        }
+      ],
+      "owners_to_notify": [
+        {
+          "urn": "urn:li:corpuser:sam.data",
+          "owner_type": "corpuser",
+          "display_name": "sam.data",
+          "handle": "@sam.data",
+          "ownership_type": "TECHNICAL_OWNER",
+          "source": "changed_dataset",
+          "for_urn": "urn:li:dataset:(urn:li:dataPlatform:duckdb,blast_radius_demo.main.dim_customers,PROD)"
+        },
+        {
+          "urn": "urn:li:corpGroup:finance-analytics",
+          "owner_type": "corpGroup",
+          "display_name": "finance-analytics",
+          "handle": "@finance-analytics",
+          "ownership_type": "BUSINESS_OWNER",
+          "source": "changed_dataset",
+          "for_urn": "urn:li:dataset:(urn:li:dataPlatform:duckdb,blast_radius_demo.main.dim_customers,PROD)"
+        },
+        {
+          "urn": "urn:li:corpGroup:ml-platform",
+          "owner_type": "corpGroup",
+          "display_name": "ml-platform",
+          "handle": "@ml-platform",
+          "ownership_type": "PRODUCER",
+          "source": "downstream_entity",
+          "for_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,blast_radius_demo.main.customer_ltv,PROD)"
+        }
+      ],
+      "assertions": [
+        {
+          "urn": "urn:li:assertion:ea564cff89b7fef74f53f772517cf45b",
+          "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:duckdb,blast_radius_demo.main.dim_customers,PROD)",
+          "assertion_type": "DATASET",
+          "references_changed_column": true
+        }
+      ],
+      "data_contracts": [
+        {
+          "urn": "urn:li:dataContract:d245bb63d8c77cde4d89cb259e69d7d1",
+          "entity_urn": "urn:li:dataset:(urn:li:dataPlatform:duckdb,blast_radius_demo.main.dim_customers,PROD)",
+          "state": "ACTIVE",
+          "name": "blast_radius_demo.main.dim_customers",
+          "references_changed_column": false
+        }
+      ],
+      "untrusted_findings": [],
+      "fix_ids": []
+    }
+  ],
+  "overall_severity": {
+    "score": 61.0,
+    "level": "high",
+    "rule_version": "sev-v1",
+    "factors": [
+      {
+        "name": "change_kind_risk",
+        "raw_value": "removed",
+        "normalized": 1.0,
+        "weight": 30.0,
+        "contribution": 30.0,
+        "description": "A removal cannot be absorbed by an alias; every reader must change."
+      },
+      {
+        "name": "downstream_reach",
+        "raw_value": 3,
+        "normalized": 0.6,
+        "weight": 20.0,
+        "contribution": 12.0,
+        "description": "3 distinct entities reached through column-level lineage."
+      },
+      {
+        "name": "hop_proximity",
+        "raw_value": 1,
+        "normalized": 1.0,
+        "weight": 15.0,
+        "contribution": 15.0,
+        "description": "Nearest consumer is 1 hop(s) away, so breakage is immediate rather than buffered."
+      },
+      {
+        "name": "query_usage",
+        "raw_value": null,
+        "normalized": 0.0,
+        "weight": 15.0,
+        "contribution": 0.0,
+        "description": "Query usage was UNAVAILABLE in DataHub, not zero. It scored zero because nothing was measured, not because the column is unused, so the score this factor belongs to is a LOWER BOUND: up to 15.0 further points could not be assessed."
+      },
+      {
+        "name": "contract_presence",
+        "raw_value": false,
+        "normalized": 0.0,
+        "weight": 12.0,
+        "contribution": 0.0,
+        "description": "No data contract references the changed column."
+      },
+      {
+        "name": "assertion_presence",
+        "raw_value": true,
+        "normalized": 1.0,
+        "weight": 4.0,
+        "contribution": 4.0,
+        "description": "An assertion references the changed column."
+      },
+      {
+        "name": "critical_consumer",
+        "raw_value": false,
+        "normalized": 0.0,
+        "weight": 4.0,
+        "contribution": 0.0,
+        "description": "No dashboard, chart or ML entity consumes this column."
+      }
+    ],
+    "computed_by": "deterministic",
+    "inputs_digest": "e4e928cdf9cf0826cd080e02315d9adb6d485bba3e33858fe1053294cf291091"
+  },
+  "datahub": {
+    "access_path": "sdk",
+    "queried_at": "2026-08-08T06:40:41Z",
+    "lineage_max_hops": 3,
+    "usage_window_days": 30
+  },
+  "generated_fixes": [],
+  "degradations": [
+    {
+      "capability": "query_usage",
+      "reason": "DataHub has no usage statistics for this dataset in the window",
+      "consequence": "61.0 is a LOWER BOUND, not a measurement: query_usage could not be measured and scored zero. The true severity is between 61.0 and 76.0 (critical). Read the level as a floor."
+    },
+    {
+      "capability": "llm_explanation",
+      "reason": "--no-agent was passed",
+      "consequence": "The report carries no prose. Severity and lineage are unaffected."
+    }
+  ]
+}
