@@ -172,7 +172,9 @@ def detect(
       ordering: "0.10.0" is newer than "0.5.0".
     - `proposals_available` is true only on DataHub Cloud. Detect it from the
       server's advertised tool list, never from the URL.
-    - `sdk_available` means acryl-datahub imports AND a token is present.
+    - `sdk_available` means acryl-datahub imports AND GMS is reachable. A token
+      is NOT required: an open-source DataHub has metadata service
+      authentication disabled by default and issues none.
     - `gms_reachable` is a cheap health check against `gms_url`.
     - Never raise. Every failure becomes a False and a note; the whole point of
       this function is to report a broken environment rather than to die in one.
@@ -201,7 +203,18 @@ def detect(
     if not sdk_importable:
         notes.append("acryl-datahub is not installed; run `uv sync --extra datahub`")
     elif token is None:
-        notes.append("DATAHUB_GMS_TOKEN is not set, so the SDK write path cannot authenticate")
+        # Not fatal, and treating it as fatal was a real bug: an open-source
+        # `datahub docker quickstart` ships with metadata service authentication
+        # disabled and issues no token at all, so requiring one reported "no
+        # write path available" on precisely the deployment the demo runs on.
+        # A secured deployment rejects the write instead, which surfaces as a
+        # failed write rather than as a missing capability — the honest place
+        # for it, because that is what actually happened.
+        notes.append(
+            "DATAHUB_GMS_TOKEN is not set; the SDK write path will make unauthenticated "
+            "requests. An open-source quickstart accepts these; a deployment with "
+            "metadata service authentication enabled will reject them."
+        )
 
     # Proposals are a DataHub Cloud feature advertised in the MCP server's tool
     # list. Establishing an MCP session is more than a probe should do, and the
@@ -217,7 +230,7 @@ def detect(
         mcp_version=mcp_version,
         mcp_mutations_enabled=mcp_available and mutation_env_flag,
         proposals_available=False,
-        sdk_available=sdk_importable and token is not None and gms_reachable,
+        sdk_available=sdk_importable and gms_reachable,
         gms_reachable=gms_reachable,
         notes=tuple(notes),
     )

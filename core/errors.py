@@ -16,6 +16,7 @@ __all__ = [
     "BlastRadiusError",
     "ConfigurationError",
     "DataHubAccessError",
+    "DataHubCapabilityError",
     "FixValidationError",
     "StubNotImplementedError",
     "WriteCapabilityError",
@@ -38,6 +39,21 @@ class ConfigurationError(BlastRadiusError):
 
 class DataHubAccessError(BlastRadiusError):
     """A read against DataHub failed, or returned something the contract forbids."""
+
+
+class DataHubCapabilityError(DataHubAccessError):
+    """This access path cannot answer this read at all, on any catalog.
+
+    Distinct from `DataHubAccessError`, which means a read that should have
+    worked did not. This means the deployment exposes no way to perform it —
+    `mcp-server-datahub` has no data-contract tool, for instance.
+
+    It is an error rather than an empty result because an empty result is a
+    scored claim. `contract_presence` is worth 12 points and
+    `assertion_presence` 4, so "there is no contract" and "this path cannot see
+    contracts" must never produce the same number. The caller either composes a
+    path that can answer it — see `core.datahub.hybrid` — or degrades visibly.
+    """
 
 
 class WriteCapabilityError(BlastRadiusError):

@@ -35,6 +35,13 @@ dependencies = [
 agent = ["anthropic>=0.40"]
 # OWNER A: DataHub Python SDK access path and write-back fallback (core/datahub, core/writeback).
 datahub = ["acryl-datahub>=0.15"]
+# OWNER A: the MCP access path (core/datahub/mcp_session.py). `mcp` is the client
+# half only — the stdio transport and session. The server it talks to,
+# `mcp-server-datahub`, is deliberately NOT a dependency: it is a separate
+# process the operator installs and configures, exactly as a DataHub agent would.
+# This extra also pulls `datahub`, because the MCP path is composed with the SDK
+# for the two reads mcp-server-datahub cannot serve (see core/datahub/hybrid.py).
+mcp = ["mcp>=1.9", "acryl-datahub>=0.15"]
 # OWNER B: deterministic SQL/YAML diff extraction (ci/diff).
 # PyYAML reads dbt schema.yml. It has to be a real parser: descriptions are
 # collected verbatim and their content-addressed ids are hashes of exactly those
@@ -125,7 +132,7 @@ files = ["core", "ci", "contracts", "env"]
 exclude = "(env/dbt_project/target|env/dbt_project/dbt_packages)"
 
 [[tool.mypy.overrides]]
-module = ["jsonschema.*", "sqlglot.*", "datahub.*", "anthropic.*"]
+module = ["jsonschema.*", "sqlglot.*", "datahub.*", "anthropic.*", "mcp.*"]
 ignore_missing_imports = true
 
 [tool.pydantic-mypy]

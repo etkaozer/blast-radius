@@ -178,6 +178,92 @@ def test_fixture_round_trips_through_the_models(directory: Any) -> None:
     validate_instance(to_payload(report), "impact_report", report_path)
 
 
+def _required_nullable_properties(name: str) -> list[str]:
+    """Every property a schema both requires and allows to be null."""
+    schema = load_schema(name)
+    found: list[str] = []
+
+    def permits_null(prop: dict[str, Any]) -> bool:
+        declared = prop.get("type")
+        if isinstance(declared, list) and "null" in declared:
+            return True
+        return any(
+            isinstance(option, dict) and option.get("type") == "null"
+            for option in prop.get("anyOf", []) or []
+        )
+
+    def walk(node: Any, path: str) -> None:
+        if not isinstance(node, dict):
+            return
+        properties = node.get("properties", {}) or {}
+        for key in node.get("required", []) or []:
+            prop = properties.get(key)
+            if isinstance(prop, dict) and permits_null(prop):
+                found.append(f"{path}.{key}")
+        for container in ("properties", "$defs"):
+            for key, value in (node.get(container) or {}).items():
+                walk(value, f"{path}/{key}" if container == "$defs" else path)
+        for key in ("items", "additionalProperties"):
+            walk(node.get(key), path)
+        for key in ("anyOf", "oneOf", "allOf"):
+            for value in node.get(key) or []:
+                walk(value, path)
+
+    walk(schema, name)
+    return found
+
+
+def _with_first_factor_field(value: Any, field: str) -> Any:
+    """Return fixture 0's report with one severity factor field overridden.
+
+    Rebuilt with `model_copy` rather than mutated: the contract models are
+    frozen, which is the reason a caller cannot quietly edit a validated report.
+    """
+    report = load_impact_report(FIXTURE_DIRS[0] / "expected_impact_report.json")
+    impact = report.column_impacts[0]
+    factors = list(impact.severity.factors)
+    factors[0] = factors[0].model_copy(update={field: value})
+    severity = impact.severity.model_copy(update={"factors": tuple(factors)})
+    return report.model_copy(
+        update={
+            "column_impacts": (
+                impact.model_copy(update={"severity": severity}),
+                *report.column_impacts[1:],
+            )
+        }
+    )
+
+
+def test_a_required_nullable_field_survives_serialisation() -> None:
+    """A required field must keep its key when null, or the payload self-invalidates.
+
+    `severityFactor.raw_value` is required and nullable, and is genuinely null
+    twice in ordinary operation: `hop_proximity` when nothing is downstream, and
+    `query_usage` when usage was never ingested. Serialising with a blanket
+    `exclude_none` dropped the key, so `core` emitted reports that
+    `load_impact_report` then refused to read.
+    """
+    assert _required_nullable_properties("impact_report") == [
+        "impact_report/severityFactor.raw_value"
+    ], "a new required-and-nullable property was added; extend this test's coverage"
+
+    payload = to_payload(_with_first_factor_field(None, "raw_value"))
+
+    serialised = payload["column_impacts"][0]["severity"]["factors"][0]
+    assert "raw_value" in serialised, "required key dropped because its value was null"
+    assert serialised["raw_value"] is None
+    validate_instance(payload, "impact_report", FIXTURE_DIRS[0])
+
+
+def test_an_optional_null_is_still_dropped() -> None:
+    """The pruning must stay selective, or optional nulls fail their non-null types."""
+    payload = to_payload(_with_first_factor_field(None, "description"))
+
+    serialised = payload["column_impacts"][0]["severity"]["factors"][0]
+
+    assert "description" not in serialised
+
+
 @pytest.mark.parametrize("directory", FIXTURE_DIRS, ids=lambda d: d.name)
 def test_fixture_report_is_pinned_to_its_change_set(directory: Any) -> None:
     """The report's digest must match the change set it claims to describe."""

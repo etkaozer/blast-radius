@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from typing import Literal, Protocol, runtime_checkable
 
 from contracts.models import (
+    AccessPath,
     AssertionRef,
     ContractRef,
     ContractState,
@@ -98,8 +99,13 @@ class DataHubReader(Protocol):
     """
 
     @property
-    def access_path(self) -> Literal["mcp", "sdk"]:
-        """Which access path this client uses, for the report's provenance block."""
+    def access_path(self) -> AccessPath:
+        """Which access path this client uses, for the report's provenance block.
+
+        `AccessPath` rather than a local literal because a composed reader
+        reports `"mcp+sdk"`, and the report's provenance must be the same closed
+        set the schema publishes.
+        """
         ...
 
     def search(

@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from jsonschema import Draft202012Validator
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from contracts.canonical import sha256_of_json
 from contracts.models import ChangeSet, ImpactReport, WritebackRecord
@@ -131,10 +131,53 @@ def load_writeback_record(path: Path) -> WritebackRecord:
     return result
 
 
+def _prune_value(attribute: Any, value: Any) -> Any:
+    """Recurse into `value`, pruning optional nulls, guided by the live model tree."""
+    if isinstance(attribute, BaseModel) and isinstance(value, dict):
+        return _prune_optional_nulls(attribute, value)
+    if isinstance(attribute, list | tuple) and isinstance(value, list):
+        return [_prune_value(item, dumped) for item, dumped in zip(attribute, value, strict=False)]
+    if isinstance(attribute, dict) and isinstance(value, dict):
+        return {key: _prune_value(attribute.get(key), dumped) for key, dumped in value.items()}
+    return value
+
+
+def _prune_optional_nulls(model: BaseModel, payload: dict[str, Any]) -> dict[str, Any]:
+    """Drop null-valued OPTIONAL fields, keeping null-valued REQUIRED ones.
+
+    `model_dump(exclude_none=True)` cannot express this distinction: it drops
+    every null, including those the schema requires the key for. A field that is
+    required and nullable — `severityFactor.raw_value` is currently the only one
+    across the three schemas — then vanishes from the payload and the report
+    fails its own contract. That is not a rare shape: `raw_value` is null for
+    `hop_proximity` when nothing is downstream and for `query_usage` when usage
+    was never ingested, so an ordinary column on an ordinary catalog emitted a
+    report `contracts/loader.py` itself would refuse to load.
+
+    Pydantic's required/optional split is the right authority here rather than a
+    hard-coded field list, because `contracts/models.py` mirrors the schemas
+    field for field: a field with no default is exactly one the schema lists in
+    `required`. A future required-and-nullable field is therefore handled the day
+    it is added, with no change here.
+    """
+    pruned: dict[str, Any] = {}
+    for name, field in type(model).model_fields.items():
+        key = field.alias or name
+        if key not in payload:
+            continue
+        value = payload[key]
+        if value is None and not field.is_required():
+            continue
+        pruned[key] = _prune_value(getattr(model, name, None), value)
+    return pruned
+
+
 def to_payload(model: ChangeSet | ImpactReport | WritebackRecord) -> dict[str, Any]:
-    """Serialise a contract model to plain JSON types, dropping unset optionals."""
-    payload: dict[str, Any] = model.model_dump(mode="json", exclude_none=True)
-    return payload
+    """Serialise a contract model to plain JSON types, dropping unset optionals.
+
+    Required fields survive even when null; see `_prune_optional_nulls`.
+    """
+    return _prune_optional_nulls(model, model.model_dump(mode="json"))
 
 
 def dump(model: ChangeSet | ImpactReport | WritebackRecord, path: Path, name: str) -> Path:
