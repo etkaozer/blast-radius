@@ -10,6 +10,11 @@ models:
         description: Inherited from stg_customers. The 1-hop consumer in the rename demo.
       - name: signup_channel
         description: Inherited from stg_customers. The 1-hop consumer in the adversarial demo.
+      - name: customer_lifetime_value
+        description: >
+          Total completed order value in USD. The column removed in the
+          02_removal_contract demo; env/seed_demo.py attaches a FIELD assertion
+          and an ACTIVE data contract to it.
 
   - name: customer_ltv
     description: Lifetime value mart. Renames three columns on the way through.
