@@ -48,14 +48,96 @@ EXIT_DEGRADED = 2
 EXIT_STUB = 3
 
 
+#: What to print when the output stream cannot represent the symbol.
+#:
+#: Two characters wide so the columns stay aligned when a run degrades, because
+#: a doctor whose table shears sideways on the machine with the problem is a
+#: doctor nobody reads on the machine with the problem.
+_ASCII_FALLBACK = {"✓": "OK", "✗": "XX", "·": "..", "!": "!!", "→": "->"}
+
+
+def _use_utf8(stream: object) -> None:
+    """Switch one stream to UTF-8, tolerating a stream that cannot be switched.
+
+    `errors="replace"` as well as the encoding change: reconfiguring is what
+    makes the symbols come out right, and the replacement policy is what keeps
+    an unexpected character from aborting a command that had already done its
+    work.
+    """
+    reconfigure = getattr(stream, "reconfigure", None)
+    if not callable(reconfigure):
+        return
+    try:
+        reconfigure(encoding="utf-8", errors="replace")
+    except (ValueError, OSError, LookupError):
+        return
+
+
+def _configure_output() -> None:
+    """Make stdout and stderr able to carry this command's output.
+
+    `analyze`, `doctor` and `writeback` all print ✓ / ✗ / · status symbols. On a
+    console whose code page is not UTF-8 — a Turkish Windows at cp1254, say —
+    encoding one raises
+
+        UnicodeEncodeError: 'charmap' codec can't encode character '\\u2713'
+
+    from inside `click.echo`, AFTER every check has run and passed. Click
+    catches it and prints a bare `Aborted!` with no traceback, so the command
+    looks like it failed at the thing it was doing rather than at the last line
+    of printing the results. A judge on a non-UTF-8 console hits this on their
+    first command.
+
+    Two layers, because reconfiguration is not always available: the stream is
+    moved to UTF-8 where it can be, and `_text` transliterates the symbols where
+    it cannot. `env/seed_demo.py` carries the first layer for the same reason.
+    """
+    _use_utf8(sys.stdout)
+    _use_utf8(sys.stderr)
+
+
+def _text(message: str) -> str:
+    """Return `message` in a form the current stdout can actually encode.
+
+    Applies to every line this CLI prints, not only to the status symbols: a
+    dataset, column or owner name arriving from a catalog can hold any
+    character at all, and the report is not worth losing to one of them.
+    """
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    try:
+        message.encode(encoding)
+    except UnicodeEncodeError:
+        pass
+    except LookupError:
+        # The stream names an encoding Python does not have. Nothing can be
+        # verified against it, so fall back to the safest thing that prints.
+        encoding = "ascii"
+    else:
+        return message
+
+    for symbol, replacement in _ASCII_FALLBACK.items():
+        message = message.replace(symbol, replacement)
+    # Anything still unrepresentable — a non-ASCII dataset or owner name — is
+    # replaced rather than raised on. A mangled name in a report beats a
+    # traceback instead of one.
+    return message.encode(encoding, errors="replace").decode(encoding, errors="replace")
+
+
+def _echo(message: str = "") -> None:
+    """Print to stdout, in an encoding the stream can carry."""
+    click.echo(_text(message))
+
+
 def _err(message: str) -> None:
-    click.echo(message, err=True)
+    """Print to stderr, in an encoding the stream can carry."""
+    click.echo(_text(message), err=True)
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
 @click.version_option(VERSION, prog_name="blast-radius")
 def main() -> None:
     """Review data pull requests for breaking schema changes, grounded in DataHub."""
+    _configure_output()
 
 
 @main.command()
@@ -114,27 +196,27 @@ def analyze(
         generate_fixes=fixes_dir is not None,
     )
 
-    click.echo(f"blast-radius {VERSION} · analyze")
-    click.echo(f"change set: {change_set_path}")
-    click.echo()
+    _echo(f"blast-radius {VERSION} · analyze")
+    _echo(f"change set: {change_set_path}")
+    _echo()
 
     progress = Progress()
 
     def show(stage: Stage, detail: str) -> None:
         index = STAGES.index(stage) + 1
-        click.echo(f"  [{index}/{len(STAGES)}] {stage.title:<34} ok   {detail}")
+        _echo(f"  [{index}/{len(STAGES)}] {stage.title:<34} ok   {detail}")
 
     try:
         report = run_analysis(request, progress, report_stage=show)
     except ContractViolation as exc:
-        click.echo()
+        _echo()
         _err(f"✗ {exc}")
         sys.exit(EXIT_BAD_INPUT)
     except NotImplementedError as exc:
         _report_halt(progress, exc)
         sys.exit(EXIT_STUB)
     except BlastRadiusError as exc:
-        click.echo()
+        _echo()
         _err(f"✗ {exc}")
         sys.exit(EXIT_BAD_INPUT)
 
@@ -144,8 +226,8 @@ def analyze(
         _err(f"✗ the generated report does not satisfy its own contract:\n{exc}")
         sys.exit(EXIT_BAD_INPUT)
 
-    click.echo()
-    click.echo(f"✓ {report.overall_severity.level} ({report.overall_severity.score}) → {out_path}")
+    _echo()
+    _echo(f"✓ {report.overall_severity.level} ({report.overall_severity.score}) → {out_path}")
 
 
 @main.command(name="writeback")
@@ -195,18 +277,18 @@ def writeback(
         report, detected_at=detected_at, report_url=report_url, fix_branch=fix_branch
     )
 
-    click.echo(f"blast-radius {VERSION} · writeback")
-    click.echo(f"report: {report_path}")
-    click.echo(
+    _echo(f"blast-radius {VERSION} · writeback")
+    _echo(f"report: {report_path}")
+    _echo(
         f"finding: {report.overall_severity.level} ({report.overall_severity.score}) "
         f"across {len(record.changed_columns)} column(s)"
     )
-    click.echo()
+    _echo()
 
     if dry_run:
-        click.echo(record_property_value(record))
-        click.echo()
-        click.echo("✓ dry run: the record is valid and nothing was written")
+        _echo(record_property_value(record))
+        _echo()
+        _echo("✓ dry run: the record is valid and nothing was written")
         return
 
     capabilities = detect(
@@ -225,16 +307,16 @@ def writeback(
         _err(f"✗ no write path available: {capabilities.explain()}")
         sys.exit(EXIT_DEGRADED)
 
-    click.echo(f"write path: {writer.access_path} — {capabilities.explain()}")
+    _echo(f"write path: {writer.access_path} — {capabilities.explain()}")
     targets = sorted({column.dataset_urn for column in record.changed_columns})
     failures = _write_record(writer, record, targets)
 
-    click.echo()
+    _echo()
     if failures:
         for message in failures:
             _err(f"✗ {message}")
         sys.exit(EXIT_DEGRADED)
-    click.echo(f"✓ wrote the impact record to {len(targets)} dataset(s) in DataHub")
+    _echo(f"✓ wrote the impact record to {len(targets)} dataset(s) in DataHub")
 
 
 def _write_record(writer: DataHubWriter, record: WritebackRecord, targets: list[str]) -> list[str]:
@@ -249,29 +331,29 @@ def _write_record(writer: DataHubWriter, record: WritebackRecord, targets: list[
     for urn in targets:
         try:
             writer.set_structured_property(urn, record)
-            click.echo(f"  · impactRecord → {urn}")
+            _echo(f"  · impactRecord → {urn}")
         except BlastRadiusError as exc:
             failures.append(f"{urn}: {exc}")
             continue
         try:
             writer.add_tag(urn, tag_urn_for(record.severity.level))
-            click.echo(f"  · tag blast-radius-{record.severity.level} → {urn}")
+            _echo(f"  · tag blast-radius-{record.severity.level} → {urn}")
         except BlastRadiusError as exc:
-            click.echo(f"  ! tag skipped for {urn}: {exc}")
+            _echo(f"  ! tag skipped for {urn}: {exc}")
     return failures
 
 
 def _report_halt(progress: Progress, exc: NotImplementedError) -> None:
     """Explain where the pipeline stopped and what remains on this path."""
     stage = progress.failed_stage
-    click.echo()
+    _echo()
     if stage is None:
         _err(f"✗ halted: {exc}")
         return
 
     index = STAGES.index(stage) + 1
-    click.echo(f"  [{index}/{len(STAGES)}] {stage.title:<34} NOT IMPLEMENTED")
-    click.echo()
+    _echo(f"  [{index}/{len(STAGES)}] {stage.title:<34} NOT IMPLEMENTED")
+    _echo()
     _err(f"✗ pipeline halted at stage {index}/{len(STAGES)}: {stage.title}")
     _err("")
     for line in str(exc).splitlines():
@@ -302,21 +384,21 @@ def doctor() -> None:
         _err(f"configuration error: {exc}")
         sys.exit(EXIT_BAD_INPUT)
 
-    click.echo(f"blast-radius {VERSION} · doctor")
-    click.echo()
+    _echo(f"blast-radius {VERSION} · doctor")
+    _echo()
     results = run_checks(settings)
     for result in results:
         owner = f"  [owner {result.owner}]" if result.owner else ""
-        click.echo(f"  {result.symbol} {result.name:<20} {result.detail}{owner}")
+        _echo(f"  {result.symbol} {result.name:<20} {result.detail}{owner}")
 
     code = exit_code_for(results)
-    click.echo()
+    _echo()
     if code == EXIT_OK:
-        click.echo("✓ read and write paths verified")
+        _echo("✓ read and write paths verified")
     elif code == EXIT_DEGRADED:
-        click.echo("· some checks are not implemented yet; do not depend on the write path")
+        _echo("· some checks are not implemented yet; do not depend on the write path")
     else:
-        click.echo("✗ environment is not usable; fix the failures above")
+        _echo("✗ environment is not usable; fix the failures above")
     sys.exit(code)
 
 
@@ -330,16 +412,16 @@ def stubs(owner: str | None) -> None:
         found = tuple(s for s in found if needle in s.owner_label.lower())
 
     if not found:
-        click.echo("No stubs found. Either the work is done or the scanner is broken.")
+        _echo("No stubs found. Either the work is done or the scanner is broken.")
         return
 
-    click.echo(f"{len(found)} stub(s) remaining")
+    _echo(f"{len(found)} stub(s) remaining")
     for label, group in group_by_owner(found).items():
-        click.echo()
-        click.echo(f"owner {label} — {len(group)}")
+        _echo()
+        _echo(f"owner {label} — {len(group)}")
         for stub in group:
-            click.echo(f"  {stub.location:<44} {stub.qualname}")
-            click.echo(f"  {'':<44} {stub.contract}")
+            _echo(f"  {stub.location:<44} {stub.qualname}")
+            _echo(f"  {'':<44} {stub.contract}")
 
 
 if __name__ == "__main__":  # pragma: no cover
