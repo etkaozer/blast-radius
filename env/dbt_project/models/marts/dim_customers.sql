@@ -25,7 +25,6 @@ select
     customers.signup_channel,
     customers.signup_date,
     coalesce(orders.order_count, 0)          as order_count,
-    orders.most_recent_order_date,
-    coalesce(orders.lifetime_amount_usd, 0)  as customer_lifetime_value
+    orders.most_recent_order_date
 from customers
 left join orders on customers.customer_id = orders.customer_id
