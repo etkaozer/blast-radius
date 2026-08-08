@@ -36,6 +36,7 @@ from core.datahub.base import (
     EntityRef,
     LineageDirection,
     LineagePath,
+    ReaderNote,
     SchemaFieldInfo,
 )
 from core.errors import OWNER_A, DataHubAccessError, StubNotImplementedError
@@ -334,6 +335,46 @@ def test_an_unimplemented_read_halts_rather_than_degrading() -> None:
 
     with pytest.raises(NotImplementedError):
         analyze_column(change, StubbedReader(expected), SETTINGS)  # type: ignore[arg-type]
+
+
+def test_an_entity_a_reader_had_to_drop_reaches_the_report() -> None:
+    """A partial read is a third case, and it used to have nowhere to go.
+
+    `get_lineage` over MCP drops any entity whose route it could not
+    demonstrate — an entity without a path is not reportable. Dropping it
+    silently would lower the score with nothing in the report to say so, which
+    is the same class of failure as returning an empty tuple for a capability
+    that is missing.
+    """
+    change, expected = fixture_pair("01_rename")
+
+    class DroppingReader(ReplayReader):
+        """A reader that reached something it could not prove a route to."""
+
+        def drain_notes(self) -> tuple[ReaderNote, ...]:
+            return (
+                ReaderNote(
+                    capability="column_level_lineage",
+                    reason="1 entity(ies) were dropped: urn:li:dataset:(x,y,PROD)",
+                    consequence="Their absence is not a finding of 'no impact'.",
+                ),
+            )
+
+    _, degradations = analyze_column(change, DroppingReader(expected), SETTINGS)  # type: ignore[arg-type]
+
+    dropped = [d for d in degradations if "dropped" in d.reason]
+    assert len(dropped) == 1
+    assert dropped[0].capability == "column_level_lineage"
+    assert dropped[0].consequence is not None
+
+
+def test_a_reader_with_nothing_to_report_adds_no_degradation() -> None:
+    """Notes are an optional capability; a reader without them is not a gap."""
+    change, expected = fixture_pair("01_rename")
+
+    _, degradations = analyze_column(change, ReplayReader(expected), SETTINGS)  # type: ignore[arg-type]
+
+    assert not [d for d in degradations if "dropped" in d.reason]
 
 
 # ---------------------------------------------------------------------------

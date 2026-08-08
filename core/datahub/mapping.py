@@ -104,6 +104,31 @@ def platform_of(urn: str) -> str | None:
     return match.group("platform") if match else None
 
 
+def sibling_key_of(urn: str) -> tuple[str, str] | None:
+    """Return the (name, env) a dataset URN shares with its siblings, or None.
+
+    DataHub models one physical table ingested by two sources as two entities
+    linked by a `siblings` aspect: dbt emits `dim_customers` on the `dbt`
+    platform AND on the warehouse's own platform, identical in name and
+    environment, differing only in the platform segment of the URN. Both appear
+    in a lineage walk, and the walk routes through the sibling edge, so a
+    logical hop-1 consumer is also reached at hop 2 as its own sibling.
+
+    Keying on (name, env) collapses them without a read. The `siblings` aspect
+    would be the authoritative answer, but `mcp-server-datahub` 0.6.0 never
+    requests a siblings field in any of its GraphQL documents, so the MCP path
+    cannot see it — and a dedup rule that only worked on one access path would
+    make the two disagree, which rule 4 in `core/CLAUDE.md` forbids.
+
+    Returns None for anything that is not a dataset URN, which is what stops
+    two dashboards that happen to share a name from being collapsed into one.
+    """
+    match = _DATASET.match(urn)
+    if match is None:
+        return None
+    return match.group("name"), match.group("env")
+
+
 def entity_name_of(urn: str) -> str:
     """Return a display name for any entity URN.
 

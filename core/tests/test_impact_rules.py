@@ -52,6 +52,59 @@ def test_deduplication_keeps_the_shortest_path() -> None:
     assert distinct_downstream(entities)[0].hop_distance == 1
 
 
+#: The same dbt model as DataHub stores it twice: once on the `dbt` platform,
+#: once on the warehouse's. Same name, same environment, different URN.
+DBT_MODEL = "urn:li:dataset:(urn:li:dataPlatform:dbt,blast_radius_demo.main.customer_ltv,PROD)"
+DUCKDB_SIBLING = (
+    "urn:li:dataset:(urn:li:dataPlatform:duckdb,blast_radius_demo.main.customer_ltv,PROD)"
+)
+
+
+def test_dbt_siblings_count_as_one_logical_model() -> None:
+    """The live run counted 3 downstream entities for 2 real tables.
+
+    Deduplicating by URN cannot catch this: the two URNs genuinely differ. The
+    walk crosses the sibling edge, so the second copy also lands one hop
+    further out and inflates `downstream_reach`.
+    """
+    entities = (entity(DBT_MODEL, "dataset", 1), entity(DUCKDB_SIBLING, "dataset", 2))
+
+    assert len(distinct_downstream(entities)) == 1
+
+
+def test_the_surviving_sibling_is_the_nearest_one() -> None:
+    """Otherwise the sibling edge inflates `hop_proximity` as well as reach."""
+    entities = (entity(DUCKDB_SIBLING, "dataset", 2), entity(DBT_MODEL, "dataset", 1))
+
+    collapsed = distinct_downstream(entities)
+    assert len(collapsed) == 1
+    assert collapsed[0].hop_distance == 1
+
+
+def test_different_tables_on_one_platform_are_not_collapsed() -> None:
+    """The key is (name, env). Two different names stay two entities."""
+    other = "urn:li:dataset:(urn:li:dataPlatform:dbt,blast_radius_demo.main.other,PROD)"
+    entities = (entity(DBT_MODEL, "dataset", 1), entity(other, "dataset", 1))
+
+    assert len(distinct_downstream(entities)) == 2
+
+
+def test_the_same_name_in_another_environment_is_another_table() -> None:
+    """PROD and DEV are not siblings, whatever they are called."""
+    dev = "urn:li:dataset:(urn:li:dataPlatform:duckdb,blast_radius_demo.main.customer_ltv,DEV)"
+    entities = (entity(DBT_MODEL, "dataset", 1), entity(dev, "dataset", 1))
+
+    assert len(distinct_downstream(entities)) == 2
+
+
+def test_non_datasets_are_never_collapsed_by_name() -> None:
+    """Only dataset URNs carry the platform/name/env shape siblings share."""
+    other_dashboard = "urn:li:dashboard:(superset,revenue)"
+    entities = (entity(DASHBOARD, "dashboard", 1), entity(other_dashboard, "dashboard", 1))
+
+    assert len(distinct_downstream(entities)) == 2
+
+
 def test_nearest_hop_of_nothing_is_none() -> None:
     assert nearest_hop(()) is None
 

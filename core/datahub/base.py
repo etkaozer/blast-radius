@@ -26,6 +26,7 @@ from typing import Literal, Protocol, runtime_checkable
 from contracts.models import (
     AccessPath,
     AssertionRef,
+    Capability,
     ContractRef,
     ContractState,
     DownstreamEntity,
@@ -73,6 +74,47 @@ class SchemaFieldInfo:
     nullable: bool | None = None
     is_primary_key: bool | None = None
     description: UntrustedEnvelope | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ReaderNote:
+    """Something a reader could not do, in the vocabulary the report degrades in.
+
+    A read either answers, or raises `DataHubAccessError` and becomes a
+    `Degradation`. There is a third case: the read mostly worked, and dropped
+    something on the way. `get_lineage` is the one that has it — an entity
+    DataHub reported as downstream, whose route could not be demonstrated, is
+    not reportable (`DownstreamEntity.path` is `minItems: 1`, because the path
+    is what makes a finding auditable) and must not be counted.
+
+    Dropping it silently is the exact failure this project exists to prevent, so
+    the reader records why instead, and the analyzer turns it into a
+    `Degradation` alongside the ones it raises itself.
+    """
+
+    capability: Capability
+    reason: str
+    consequence: str
+
+
+def drain_reader_notes(reader: object) -> tuple[ReaderNote, ...]:
+    """Collect and clear whatever notes a reader accumulated, or nothing.
+
+    Deliberately NOT a method on `DataHubReader`. Recording notes is a property
+    of a particular implementation — only the MCP lineage walk has anything to
+    say — and putting it in the protocol would oblige every reader, and every
+    fake in the test suite, to carry a method that returns `()` forever.
+
+    The `getattr` is the price of that, and it is paid once, here, rather than
+    at each call site.
+    """
+    drain = getattr(reader, "drain_notes", None)
+    if not callable(drain):
+        return ()
+    notes = drain()
+    if not isinstance(notes, tuple):
+        return ()
+    return tuple(note for note in notes if isinstance(note, ReaderNote))
 
 
 @dataclass(frozen=True, slots=True)

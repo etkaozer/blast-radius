@@ -9,25 +9,45 @@ from __future__ import annotations
 
 from contracts.models import AssertionRef, ContractRef, DownstreamEntity, QueryUsage
 from core.datahub.base import assertion_covers_column, contract_covers_column, coverage_is_unknown
+from core.datahub.mapping import sibling_key_of
 from core.severity.rules import SeverityInput, is_critical_entity_type
 
 
 def distinct_downstream(entities: tuple[DownstreamEntity, ...]) -> tuple[DownstreamEntity, ...]:
-    """Deduplicate by URN, keeping the shortest path to each entity.
+    """Reduce to one entry per logical entity, keeping the shortest path to each.
 
-    Column-level lineage routinely reaches the same dashboard by two routes.
-    Counting it twice would inflate `downstream_reach` and, through it, the
-    severity score. Keeping the shortest path also keeps `hop_proximity`
-    honest.
+    Two different duplications have to collapse here, and only one of them is
+    visible as a repeated URN.
 
-    Ties on hop distance keep the first occurrence, so the result is stable for
-    a stable input ordering.
+    **The same URN twice.** Column-level lineage routinely reaches the same
+    dashboard by two routes. Counting it twice inflates `downstream_reach` and,
+    through it, the score.
+
+    **The same table under two URNs.** A dbt project emits every model twice —
+    once on the `dbt` platform, once on the warehouse's — as DataHub siblings.
+    Both are returned, and because the walk crosses the sibling edge, the second
+    copy also arrives one hop further out. A live run counted 3 downstream
+    entities for 2 logical models, with the hop-2 entry naming the same physical
+    table as the hop-1 entry. Deduplicating by URN cannot see this: the URNs
+    genuinely differ. `sibling_key_of` collapses them by (name, env).
+
+    The survivor is the nearest one, so the sibling hop never inflates
+    `hop_proximity` either. Ties keep the first occurrence, so the result is
+    stable for a stable input ordering.
+
+    The cost of the (name, env) key is that two genuinely distinct datasets with
+    the same qualified name in the same environment on different platforms — a
+    Snowflake table and a Redshift copy, say — collapse into one. That
+    understates reach, which is the safe direction for a tool whose whole claim
+    is that its score is a floor.
     """
     best: dict[str, DownstreamEntity] = {}
     for entity in entities:
-        current = best.get(entity.urn)
+        sibling_key = sibling_key_of(entity.urn)
+        key = f"sibling:{sibling_key[0]}:{sibling_key[1]}" if sibling_key else entity.urn
+        current = best.get(key)
         if current is None or entity.hop_distance < current.hop_distance:
-            best[entity.urn] = entity
+            best[key] = entity
     return tuple(best.values())
 
 

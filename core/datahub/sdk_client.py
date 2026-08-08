@@ -90,6 +90,15 @@ _CONTRACT_FOR = "ContractFor"
 
 _MILLISECONDS_PER_DAY = 86_400_000
 
+#: Ceiling on usage buckets fetched in one `getTimeseriesAspectValues` call.
+#:
+#: Required, not tuning: GMS NPEs on a request that omits it. The value covers
+#: daily buckets across the widest window `QueryUsage` permits (365) with room
+#: for the weekly and monthly rollups that share the aspect, so the sum is over
+#: the whole window rather than over a silently truncated page — the same
+#: failure `_LINEAGE_MAX_RESULTS` exists to prevent on the other read.
+_USAGE_ASPECT_LIMIT = 500
+
 #: Bounds on a single GMS request, and on how hard the SDK retries one.
 #:
 #: Both are set explicitly because the SDK's defaults are unbounded, and an
@@ -403,20 +412,85 @@ class SdkDataHubReader:
 
         Contract: read the `datasetUsageStatistics` aspect over `window_days`.
         Return `source="unavailable"` when the aspect is absent.
+
+        ## Why this does not use `DataHubGraph.get_usage_aspects_from_urn`
+
+        That helper POSTs `getTimeseriesAspectValues` without a `limit` field.
+        GMS dereferences it unconditionally and answers HTTP 500:
+
+            java.lang.NullPointerException: Cannot invoke
+            "java.lang.Integer.intValue()" because "limit" is null
+
+        The helper then logs the non-200 at DEBUG and returns `None`, which is
+        the same value it returns for a dataset nobody has ever queried. So the
+        report said "DataHub has no usage statistics for this dataset in the
+        window" against a catalog holding thirty days of them, scored
+        `query_usage` zero, and emitted a degradation whose reason was false.
+
+        The degradation machinery worked perfectly on top of a read that lied,
+        which is the point: a read that cannot tell "no data" from "request
+        rejected" cannot support the floor-vs-measurement claim the report
+        makes. So the request is issued here with a `limit`, and a non-200
+        raises instead of quietly becoming absence.
         """
+        import json
         import time
+
+        from datahub.metadata.schema_classes import DatasetUsageStatisticsClass
 
         now_ms = int(time.time() * 1000)
         start_ms = now_ms - window_days * _MILLISECONDS_PER_DAY
 
+        body = {
+            "urn": dataset_urn,
+            "entity": "dataset",
+            "aspect": "datasetUsageStatistics",
+            "startTimeMillis": start_ms,
+            "endTimeMillis": now_ms,
+            "limit": _USAGE_ASPECT_LIMIT,
+        }
+        url = f"{self._graph.config.server}/aspects?action=getTimeseriesAspectValues"
+
         try:
-            buckets = self._graph.get_usage_aspects_from_urn(dataset_urn, start_ms, now_ms)
+            # `_session` rather than a bare `requests.post`: it carries the
+            # token, the timeout and the retry policy configured above, and
+            # re-deriving those here would be a second, subtly different client.
+            response = self._graph._session.post(url, data=json.dumps(body))
         except Exception as exc:
             msg = f"reading usage statistics of {dataset_urn} failed: {exc}"
             raise DataHubAccessError(msg) from exc
 
+        if response.status_code != 200:
+            msg = (
+                f"reading usage statistics of {dataset_urn} failed: GMS answered "
+                f"HTTP {response.status_code}. This is a rejected request, not an "
+                f"absence of usage data."
+            )
+            raise DataHubAccessError(msg)
+
+        try:
+            values = response.json().get("value", {}).get("values", [])
+        except Exception as exc:
+            msg = f"usage statistics of {dataset_urn} were not decodable JSON: {exc}"
+            raise DataHubAccessError(msg) from exc
+
+        buckets = []
+        for value in values:
+            aspect = (value or {}).get("aspect") or {}
+            if not aspect.get("value"):
+                continue
+            try:
+                buckets.append(
+                    DatasetUsageStatisticsClass.from_obj(json.loads(aspect["value"]), tuples=True)
+                )
+            except Exception as exc:
+                msg = f"a usage bucket of {dataset_urn} could not be parsed: {exc}"
+                raise DataHubAccessError(msg) from exc
+
         if not buckets:
-            # Nothing was ingested. NOT the same as "nobody queries this".
+            # Nothing was ingested. NOT the same as "nobody queries this", and
+            # now genuinely distinguishable from it, because a rejected request
+            # raised above rather than arriving here.
             return usage_from(window_days, total_queries=None)
 
         total = sum(bucket.totalSqlQueries or 0 for bucket in buckets)
@@ -523,20 +597,69 @@ class SdkDataHubReader:
             if properties is None:
                 continue
             status = self._aspect(contract_urn, DataContractStatusClass)
+            fields = self._contract_fields(properties) if column is not None else None
             contracts.append(
                 ContractRef(
                     urn=contract_urn,
                     entity_urn=dataset_urn,
                     state=contract_state_of(getattr(status, "state", None)),
                     name=dataset_name_of(dataset_urn),
+                    # `None` when the contract's terms could not be resolved to
+                    # any field: unmeasured, not measured-absent. It scores the
+                    # same but `unknown_coverage` fires on it, so the report
+                    # degrades instead of asserting a no.
                     references_changed_column=(
-                        references_column(_contract_fields(properties), dataset_urn, column)
-                        if column is not None
+                        references_column(fields, dataset_urn, column)
+                        if column is not None and fields is not None
                         else None
                     ),
                 )
             )
         return tuple(contracts)
+
+    def _contract_fields(self, properties: Any) -> tuple[str | None, ...] | None:
+        """Resolve a contract's terms to the schema fields they govern.
+
+        `DataContractPropertiesClass` does not carry field references. Each of
+        its `schema` / `dataQuality` / `freshness` entries carries an
+        **assertion URN**, and the assertion is what names the column. The link
+        is contract -> assertion -> field, and the middle hop is a read.
+
+        Collecting `entry.assertion` and handing it to `references_column` — as
+        this did — compares an assertion URN against a schemaField URN and a
+        bare field path. It matches neither, so `references_changed_column` was
+        False for every contract ever seen, `contract_presence` (12 points, the
+        largest single factor) could never fire, and it scored as a measured no,
+        so nothing degraded either. The live run showed it plainly: for one
+        column, `assertions[0].references_changed_column` true and
+        `data_contracts[0].references_changed_column` false.
+
+        Returns `None` when the contract named assertions and none of them could
+        be read, which is a gap rather than an answer.
+        """
+        from datahub.metadata.schema_classes import AssertionInfoClass
+
+        assertion_urns = [
+            urn
+            for group_name in ("schema", "dataQuality", "freshness")
+            for entry in getattr(properties, group_name, None) or []
+            if isinstance(urn := getattr(entry, "assertion", None), str) and urn
+        ]
+        if not assertion_urns:
+            # A contract with no resolvable terms governs nothing we can check.
+            return None
+
+        found: list[str | None] = []
+        resolved = 0
+        for assertion_urn in assertion_urns:
+            info = self._aspect(assertion_urn, AssertionInfoClass)
+            if info is None:
+                continue
+            resolved += 1
+            found.extend(_asserted_fields(info))
+        if resolved == 0:
+            return None
+        return tuple(found)
 
 
 def _ownership_type_of(entry: Any) -> OwnershipType | None:
@@ -579,13 +702,4 @@ def _asserted_fields(info: Any) -> tuple[str | None, ...]:
                 found.append(getattr(field, "path", None))
                 found.append(getattr(field, "urn", None))
 
-    return tuple(found)
-
-
-def _contract_fields(properties: Any) -> tuple[str | None, ...]:
-    """Collect the schema/data-quality field references a contract carries."""
-    found: list[str | None] = []
-    for group_name in ("schema", "dataQuality", "freshness"):
-        for entry in getattr(properties, group_name, None) or []:
-            found.append(getattr(entry, "assertion", None))
     return tuple(found)

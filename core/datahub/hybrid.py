@@ -55,6 +55,7 @@ from core.datahub.base import (
     EntityRef,
     LineageDirection,
     LineagePath,
+    ReaderNote,
     SchemaFieldInfo,
 )
 
@@ -94,6 +95,17 @@ class HybridDataHubReader:
     def close(self) -> None:
         """Shut the MCP server subprocess down. The SDK holds no subprocess."""
         self._mcp.close()
+
+    def drain_notes(self) -> tuple[ReaderNote, ...]:
+        """Forward the MCP half's notes. Lineage is served there, and it is the
+        only read that has anything to drop.
+
+        Without this the composition would swallow them, and a
+        `HybridDataHubReader` would under-report exactly where a bare
+        `McpDataHubReader` would not — the drift rule 4 in `core/CLAUDE.md`
+        forbids.
+        """
+        return self._mcp.drain_notes()
 
     # -- served by MCP -------------------------------------------------------
 

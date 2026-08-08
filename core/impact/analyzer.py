@@ -44,7 +44,7 @@ from contracts.models import (
     QueryUsage,
 )
 from core.config import Settings
-from core.datahub.base import DataHubReader
+from core.datahub.base import DataHubReader, drain_reader_notes
 from core.errors import DataHubAccessError
 from core.impact.rules import build_severity_input, distinct_downstream, unknown_coverage
 from core.severity.scoring import compute, lower_bound_note
@@ -170,6 +170,20 @@ def analyze_column(
         degradations,
     )
     downstream: tuple[DownstreamEntity, ...] = distinct_downstream(reached)
+
+    # A read can also partly succeed. `get_lineage` over MCP drops any entity
+    # whose route it could not demonstrate, because an entity without a path is
+    # not reportable — and a drop that lowers the score in silence is the exact
+    # failure this file's docstring is about. The reader records those, and this
+    # is where they become visible.
+    degradations.extend(
+        Degradation(
+            capability=note.capability,
+            reason=note.reason,
+            consequence=note.consequence,
+        )
+        for note in drain_reader_notes(reader)
+    )
 
     # An entity reached without a `via_column` was reached at table level. The
     # score still counts it, because it is genuinely downstream, but the report
