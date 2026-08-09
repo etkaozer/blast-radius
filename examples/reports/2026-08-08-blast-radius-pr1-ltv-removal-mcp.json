@@ -1,6 +1,6 @@
 {
   "schema_version": "1.1.0",
-  "generated_at": "2026-08-09T05:23:38Z",
+  "generated_at": "2026-08-09T05:23:53Z",
   "tool": {
     "name": "blast-radius",
     "version": "0.1.0",
@@ -101,7 +101,7 @@
         {
           "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,blast_radius_demo.main.customer_ltv,PROD)",
           "entity_type": "dataset",
-          "name": "blast_radius_demo.main.customer_ltv",
+          "name": "customer_ltv",
           "hop_distance": 1,
           "path": [
             {
@@ -120,7 +120,7 @@
         {
           "urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,blast_radius_demo.main.mart_exec_summary,PROD)",
           "entity_type": "dataset",
-          "name": "blast_radius_demo.main.mart_exec_summary",
+          "name": "mart_exec_summary",
           "hop_distance": 3,
           "path": [
             {
@@ -136,8 +136,7 @@
               "from_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,blast_radius_demo.main.customer_ltv,PROD)",
               "to_urn": "urn:li:dataset:(urn:li:dataPlatform:duckdb,blast_radius_demo.main.customer_ltv,PROD)",
               "transformation": {
-                "type": "unknown",
-                "expression": "NONE"
+                "type": "unknown"
               },
               "from_column": "ltv_usd",
               "to_column": "ltv_usd"
@@ -161,8 +160,7 @@
           "urn": "urn:li:corpuser:sam.data",
           "owner_type": "corpuser",
           "display_name": "sam.data",
-          "handle": "@sam.data",
-          "ownership_type": "TECHNICAL_OWNER",
+          "handle": "sam.data",
           "source": "changed_dataset",
           "for_urn": "urn:li:dataset:(urn:li:dataPlatform:duckdb,blast_radius_demo.main.dim_customers,PROD)"
         },
@@ -170,8 +168,7 @@
           "urn": "urn:li:corpGroup:finance-analytics",
           "owner_type": "corpGroup",
           "display_name": "finance-analytics",
-          "handle": "@finance-analytics",
-          "ownership_type": "BUSINESS_OWNER",
+          "handle": "finance-analytics",
           "source": "changed_dataset",
           "for_urn": "urn:li:dataset:(urn:li:dataPlatform:duckdb,blast_radius_demo.main.dim_customers,PROD)"
         },
@@ -179,9 +176,8 @@
           "urn": "urn:li:corpGroup:ml-platform",
           "owner_type": "corpGroup",
           "display_name": "ml-platform",
-          "handle": "@ml-platform",
-          "ownership_type": "PRODUCER",
-          "source": "downstream_entity",
+          "handle": "ml-platform",
+          "source": "changed_dataset",
           "for_urn": "urn:li:dataset:(urn:li:dataPlatform:dbt,blast_radius_demo.main.customer_ltv,PROD)"
         }
       ],
@@ -272,8 +268,8 @@
     "inputs_digest": "d9f2ee4a6f629b35a02b46de78e8c8af541e282305aebfc2b24923de436ebef9"
   },
   "datahub": {
-    "access_path": "sdk",
-    "queried_at": "2026-08-09T05:23:38Z",
+    "access_path": "mcp+sdk",
+    "queried_at": "2026-08-09T05:23:53Z",
     "lineage_max_hops": 3,
     "usage_window_days": 30
   },
