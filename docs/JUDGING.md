@@ -4,13 +4,18 @@ Written for a judge who wants to verify a claim in under a minute, and kept
 honest: every gap is marked **TODO** rather than talked around. A scaffold that
 overstates itself is the same failure mode this project is about.
 
-**Status as of the current commit: OWNER A has no stubs left.** The
-deterministic core, both DataHub access paths, all four write-back mutations and
-the `doctor` write round-trip are implemented and unit tested. What has *not*
-happened is an end-to-end run against a live DataHub — every DataHub call is
-written against the installed server's own type definitions and GraphQL
-documents, which is evidence about shapes and not evidence that it works.
-`uv run blast-radius stubs` prints the exact inventory.
+**Status as of the current commit: no stubs left, and it has been run against a
+live DataHub.** The pipeline completes eight stages against an OSS quickstart and
+scores a real pull request at `88.0 critical` — the same 88.0, factor for factor,
+through the Python SDK and through the composed `mcp+sdk` reader. The finding is
+written back to the catalog. Both reports and the write-back record are in
+[`examples/`](../examples/).
+
+The live run is also what found five wrong reads in this repository, each of
+which returned a value that scored as a measurement and was not one. They are
+fixed. [`docs/LIVE_VERIFICATION.md`](LIVE_VERIFICATION.md) is the ordered
+checklist that found them, written so the riskiest assumptions failed first.
+`uv run blast-radius stubs` prints the inventory, which is now empty.
 
 ---
 
@@ -18,13 +23,13 @@ documents, which is evidence about shapes and not evidence that it works.
 
 | Claim | Where | Status |
 | --- | --- | --- |
-| Both supported access paths behind one interface | `core/datahub/base.py` (protocol), `mcp_client.py`, `sdk_client.py`, `hybrid.py` | Done; not run live |
+| Both supported access paths behind one interface | `core/datahub/base.py` (protocol), `mcp_client.py`, `sdk_client.py`, `hybrid.py` | Done; both run live, agreeing on 88.0 factor for factor |
 | Column-level lineage, N-hop, with full paths | `core/datahub/{mcp_client,sdk_client}.py::get_lineage` | Done; path reconstruction unit tested |
-| `get_lineage_paths_between` for "why is this dashboard affected" | both clients | Done; not run live |
+| `get_lineage_paths_between` for "why is this dashboard affected" | both clients | Done; used live to reconstruct hops beyond degree 1 |
 | Real query usage, not an estimate | `$defs.queryUsage`, `core/severity/rules.py::normalize_query_usage` | Done, and the two usage sources are kept distinct |
 | Assertions and data contracts as severity factors | `core/impact/rules.py`, `core/severity/rules.py` | Done |
 | Ownership resolution for notification | `$defs.owner`, both clients | Done |
-| Write-back as a structured property | `core/writeback/writer.py`, `uv run blast-radius writeback` | Done on both paths; not run live |
+| Write-back as a structured property | `core/writeback/writer.py`, `uv run blast-radius writeback` | Done on both paths; written to a live catalog and read back |
 | Graceful degradation across DataHub deployments | `core/writeback/capabilities.py`, `core/writeback/writer.py::build_writer` | Done and tested |
 | `doctor` verifies the write path before anyone depends on it | `core/writeback/doctor.py`, `uv run blast-radius doctor` | Done — writes to a scratch URN, reads back, compares, cleans up |
 | Honest about what MCP cannot do | `core/datahub/hybrid.py`, `core/datahub/mcp_client.py` | `mcp-server-datahub` has no data-contract tool and no OSS assertion tool; the composed reader says so rather than scoring zero |
@@ -47,13 +52,16 @@ specifically. Remove DataHub and the tool has no severity score, not a worse one
 | mypy strict, ruff, uv, pre-commit | `pyproject.toml`, `.pre-commit-config.yaml`, `make check` |
 | No mock implementations, enforced by test | `core/tests/test_stub_inventory.py` |
 | Two-owner isolation that actually holds | `.github/CODEOWNERS`, `.claude/`, per-directory `CLAUDE.md` |
-| Generated fixes gated on a compiler | `core/validate/dbt.py` — retry loop done, compile **TODO** |
+| Generated fixes gated on a compiler | `core/validate/dbt.py` — implemented; the live run passed `--no-agent`, so fix generation is **not yet exercised end to end** |
 
 Run `make check`. It is green.
 
-**TODO:** end-to-end run against a live DataHub. Until that exists, the honest
-claim is "the interfaces and the deterministic core are built and tested", not
-"it works end to end".
+The end-to-end run against a live DataHub has happened: eight stages green,
+`88.0 critical`, both access paths agreeing, the finding written back. What it
+cost was five wrong reads, all found by the checklist and all fixed.
+
+**Still not exercised:** fix generation and the `dbt compile` gate, which need an
+API key the live run did not use.
 
 ---
 
@@ -110,14 +118,14 @@ supported by code, not a usage claim supported by evidence.
 | Architecture diagram | `README.md` (mermaid) | Done |
 | Quickstart that works from a clean clone | `README.md`, `make setup` | Done |
 | Honest limitations section | `README.md` | Done |
-| One-command demo environment | `env/quickstart.sh`, `env/seed_demo.py` | Scripts scaffolded, seeding **TODO** |
+| One-command demo environment | `env/quickstart.sh`, `env/seed_demo.py` | Done — builds, ingests, seeds governance and usage, and plants the adversarial description |
 | 3-minute video script, shot by shot | `docs/DEMO.md` | Done |
 | Threat model | `docs/THREAT_MODEL.md` | Done |
 | Contributor docs | `CONTRIBUTING.md`, `CONTRACT.md` | Done |
 | Apache 2.0, GitHub-detected | `LICENSE` | Done |
-| Real generated artifacts to look at | `examples/` | **TODO** — fills up once the pipeline runs |
+| Real generated artifacts to look at | `examples/` | Done — the impact report from both access paths, and the record written to DataHub |
 
-**TODO:** record the video. **TODO:** populate `examples/` with real output.
+**TODO:** record the video.
 
 ---
 
@@ -125,6 +133,7 @@ supported by code, not a usage claim supported by evidence.
 
 | Item | Where | Status |
 | --- | --- | --- |
+| Bug reported to DataHub, found by the live run | [datahub-project/datahub#19016](https://github.com/datahub-project/datahub/issues/19016) | Open, with a minimal reproduction and an offer to PR |
 | Plan for a DataHub Skill to upstream | `skill/README.md` | Plan done |
 | Draft Skill definition | `skill/SKILL.md` | Draft, format **TODO(verify)** |
 | PR to `datahub-project/datahub-skills` | — | **TODO** — not opened |
