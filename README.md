@@ -8,7 +8,8 @@ inherits it.**
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 > Built for [Build with DataHub: The Agent Hackathon](https://devpost.com).
-> Scaffold stage — see [What actually works today](#what-actually-works-today).
+> Run end to end against a live DataHub — see
+> [What actually works today](#what-actually-works-today).
 
 ---
 
@@ -153,7 +154,7 @@ Two developers, two directories, one frozen interface between them. See
 ## Quickstart
 
 ```bash
-git clone https://github.com/etka/blast-radius && cd blast-radius
+git clone https://github.com/etkaozer/blast-radius && cd blast-radius
 make setup                      # uv sync + pre-commit hooks
 make test                       # the deterministic core is tested; this passes
 cp .env.example .env            # fill in DATAHUB_GMS_URL, ANTHROPIC_API_KEY, ...
@@ -197,11 +198,26 @@ Honest status, because a judge should not have to find this out by running it.
 - all four write-back mutations on both paths, read-modify-write throughout, and
   `blast-radius writeback` to drive them
 
-**Not yet verified against a running DataHub.** Every DataHub call is written
-against the installed server's own type definitions and GraphQL documents, which
-is the best available offline evidence and is not the same as evidence.
-`blast-radius doctor` is the command that turns it into a real answer, and its
-write round-trip genuinely writes, reads back, compares and cleans up.
+**Verified against a running DataHub.** The pipeline completes all eight stages
+against an OSS quickstart and scores a real pull request — one that removes
+`dim_customers.customer_lifetime_value` — at **88.0, critical**. The Python SDK
+path and the composed `mcp+sdk` path return the same 88.0, factor for factor.
+The finding is in the catalog as the `io.blastradius.impactRecord` structured
+property alongside a `blast-radius-critical` tag; both reports and the
+write-back record are committed in [`examples/`](examples/).
+
+That run is also what found five wrong reads in this repository. Every one of
+them returned a value that scored as a measurement and was not one: `get_lineage`
+read a response shape `mcp-server-datahub` 0.6.0 does not use, the usage read
+could not tell "no data" from a rejected request, and the contract check was
+missing the contract → assertion → field hop. The degradation machinery was
+working perfectly on top of reads that lied, which is precisely the failure this
+project exists to prevent. [`docs/LIVE_VERIFICATION.md`](docs/LIVE_VERIFICATION.md)
+is the checklist that found them.
+
+`blast-radius doctor` verifies the read and write paths before anything depends
+on them; its write round-trip genuinely writes, reads back, compares and cleans
+up.
 
 `uv run blast-radius stubs` prints the current inventory grouped by owner. There
 are no mock implementations anywhere in this repository: a stub raises, and the
